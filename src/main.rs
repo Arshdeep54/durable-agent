@@ -1,3 +1,4 @@
+mod classifier;
 mod domain;
 
 use axum::{
