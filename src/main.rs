@@ -1,8 +1,10 @@
+mod api;
 mod approval;
 mod classifier;
 mod domain;
 mod ticket_system;
 
+use api::ApiState;
 use axum::{
     Router,
     http::StatusCode,
@@ -10,7 +12,11 @@ use axum::{
 };
 
 fn app() -> Router {
-    Router::new().route("/health", get(|| async { (StatusCode::OK, "ok") }))
+    let state = ApiState::new();
+    Router::new()
+        .route("/health", get(|| async { (StatusCode::OK, "ok") }))
+        .merge(api::router())
+        .with_state(state)
 }
 
 #[tokio::main]
@@ -41,5 +47,139 @@ mod tests {
             .expect("oneshot");
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn workflow_api_lifecycle() {
+        let app = app();
+
+        let create = |id: &str| {
+            Request::builder()
+                .method("POST")
+                .uri("/workflows")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(r#"{{"id":"{}"}}"# , id)))
+                .expect("request")
+        };
+
+        let response = app
+            .clone()
+            .oneshot(create("wf-1"))
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let record: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(record["id"], "wf-1");
+        assert_eq!(record["status"], "pending");
+
+        let response = app
+            .clone()
+            .oneshot(create("wf-1"))
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-1/run")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let record: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(record["status"], "running");
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/workflows/wf-1")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let record: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(record["id"], "wf-1");
+        assert_eq!(record["status"], "running");
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/workflows/missing")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/workflows")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let list: Vec<serde_json::Value> = serde_json::from_slice(&body).expect("json");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["id"], "wf-1");
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/workflows/wf-1/events")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let events: Vec<serde_json::Value> = serde_json::from_slice(&body).expect("json");
+        assert!(events.is_empty());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-1/approve")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let record: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(record["status"], "completed");
     }
 }
