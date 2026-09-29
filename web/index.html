@@ -1,0 +1,453 @@
+<title>Durable Agent Console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* layout: single-column app shell, deliberately light-only (user's explicit request) —
+   header with live status + controls, timeline+log side by side on wide screens,
+   an always-visible explainer strip so the story reads even without clicking anything */
+:root{
+  color-scheme: light;
+  --bg:#f7f6f2;
+  --surface:#ffffff;
+  --surface-2:#eeece4;
+  --border:#e1ded3;
+  --fg:#1e1d1a;
+  --muted:#84806f;
+  --accent:#2f6f5e;
+  --accent-soft:#e2efe9;
+  --danger:#c1453a;
+  --danger-soft:#fbe7e4;
+  --warn:#a8791f;
+  --warn-soft:#f7ecd8;
+  --sans:'Inter',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --radius:12px;
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--fg); font-family:var(--sans);
+  margin:0; padding-inline:16px; padding-block:28px;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:900px; margin:0 auto; display:flex; flex-direction:column; gap:22px;}
+
+/* header */
+header{display:flex; flex-direction:column; gap:12px;}
+.title-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+h1{font-size:1.3rem; font-weight:700; margin:0; letter-spacing:-0.01em;}
+.wf-id{font-family:var(--mono); font-size:0.78rem; color:var(--muted); background:var(--surface-2); padding:3px 8px; border-radius:6px;}
+.status-pill{font-size:0.75rem; font-weight:600; padding:4px 10px; border-radius:999px; display:inline-flex; align-items:center; gap:6px; transition:background .3s, color .3s;}
+.status-pill .dot{width:6px; height:6px; border-radius:50%; background:currentColor;}
+.status-idle{background:var(--surface-2); color:var(--muted);}
+.status-running{background:var(--accent-soft); color:var(--accent);}
+.status-waiting{background:var(--warn-soft); color:var(--warn);}
+.status-done{background:var(--accent-soft); color:var(--accent);}
+.intro{color:var(--muted); font-size:0.92rem; line-height:1.55; max-width:64ch; margin:0;}
+
+.controls{display:flex; gap:8px; flex-wrap:wrap;}
+button{
+  font-family:var(--sans); font-size:0.85rem; font-weight:600; cursor:pointer;
+  border-radius:9px; padding:9px 14px; border:1px solid transparent;
+  transition:background .15s, border-color .15s, opacity .15s, transform .1s;
+}
+button:active{transform:scale(0.98);}
+button:disabled{opacity:0.4; cursor:not-allowed;}
+.btn-primary{background:var(--accent); color:#fff;}
+.btn-primary:hover:not(:disabled){background:#285f50;}
+.btn-danger{background:var(--surface); color:var(--danger); border-color:var(--danger);}
+.btn-danger:hover:not(:disabled){background:var(--danger-soft);}
+.btn-ghost{background:var(--surface); color:var(--fg); border-color:var(--border);}
+.btn-ghost:hover:not(:disabled){background:var(--surface-2);}
+.dev-tag{font-family:var(--mono); font-size:0.62rem; font-weight:600; color:var(--danger); background:var(--danger-soft); border-radius:4px; padding:1px 5px; margin-left:7px; vertical-align:1px;}
+
+/* crash banner */
+.banner{
+  display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:9px;
+  font-size:0.85rem; font-weight:500; overflow:hidden; max-height:0; opacity:0;
+  transition:max-height .3s ease, opacity .3s ease, padding .3s ease;
+}
+.banner.show{max-height:60px; opacity:1; padding:10px 14px;}
+.banner-crash{background:var(--danger-soft); color:#7a2b23;}
+.banner-recover{background:var(--warn-soft); color:#7a5814;}
+
+/* body grid */
+.body-grid{display:grid; grid-template-columns:1.15fr 1fr; gap:20px; align-items:start;}
+@media (max-width:680px){.body-grid{grid-template-columns:1fr}}
+
+.panel{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px;}
+.panel h2{font-size:0.72rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:700; margin:0 0 14px;}
+
+/* timeline */
+.tl{display:flex; flex-direction:column;}
+.step{display:flex; gap:12px; padding-block:10px; border-radius:8px; transition:background .2s;}
+.step.active-crash{background:var(--danger-soft);}
+.step-icon{flex:none; width:22px; height:22px; margin-top:1px; position:relative;}
+.step-icon svg{width:100%; height:100%; display:block;}
+.step-main{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;}
+.step-name{font-size:0.9rem; font-weight:600;}
+.step-sub{font-size:0.78rem; color:var(--muted); font-family:var(--mono);}
+.step.pending .step-name{color:var(--muted); font-weight:500;}
+.connector{width:1px; background:var(--border); margin-left:10px; height:14px;}
+
+/* icon states */
+.ring{fill:none; stroke:var(--border); stroke-width:2;}
+.ring.running{stroke:var(--accent); stroke-dasharray:10 8; animation:spin 1s linear infinite;}
+.ring.waiting{stroke:var(--warn);}
+.ring.crashed{stroke:var(--danger);}
+.check{stroke:var(--accent); stroke-width:2.4; fill:none; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:20; stroke-dashoffset:20; transition:stroke-dashoffset .35s ease;}
+.check.drawn{stroke-dashoffset:0;}
+.hourglass{transform-origin:50% 50%; animation:tip 2.6s ease-in-out infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes tip{0%,100%{transform:rotate(0)}50%{transform:rotate(180deg)}}
+@media (prefers-reduced-motion: reduce){.ring.running,.hourglass{animation:none}}
+
+/* event log */
+.log{display:flex; flex-direction:column; gap:0; max-height:340px; overflow-y:auto;}
+.ev{display:flex; gap:10px; padding-block:7px; border-bottom:1px solid var(--surface-2); font-size:0.78rem; align-items:baseline;}
+.ev:last-child{border-bottom:none;}
+.ev-time{font-family:var(--mono); color:var(--muted); flex:none; width:56px;}
+.ev-tag{font-family:var(--mono); font-weight:600; border-radius:5px; padding:1px 6px; flex:none; font-size:0.72rem;}
+.ev-tag.info{background:var(--surface-2); color:var(--muted);}
+.ev-tag.ok{background:var(--accent-soft); color:var(--accent);}
+.ev-tag.warn{background:var(--warn-soft); color:var(--warn);}
+.ev-tag.err{background:var(--danger-soft); color:var(--danger);}
+.ev-msg{color:var(--fg); min-width:0;}
+.log-empty{color:var(--muted); font-size:0.82rem; font-style:italic;}
+@keyframes slidein{from{opacity:0; transform:translateY(-4px)} to{opacity:1; transform:translateY(0)}}
+.ev.new{animation:slidein .25s ease;}
+@media (prefers-reduced-motion: reduce){.ev.new{animation:none}}
+
+/* explainer strip */
+.strip{display:flex; gap:14px; flex-wrap:wrap;}
+.strip .card{flex:1; min-width:180px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:13px 15px;}
+.strip .card .k{font-family:var(--mono); font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--accent);}
+.strip .card p{margin:5px 0 0; font-size:0.8rem; color:var(--muted); line-height:1.45;}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="title-row">
+      <h1>Durable Agent Console</h1>
+      <span class="wf-id">ticket-4821</span>
+      <span class="status-pill status-idle" id="statusPill"><span class="dot"></span><span id="statusText">Idle</span></span>
+    </div>
+    <p class="intro">A durable execution engine for AI agent workflows, built on agentq. Run the workflow below, then kill the worker mid-step — it recovers without re-running finished work.</p>
+    <div class="controls">
+      <button class="btn-primary" id="runBtn">Run workflow</button>
+      <button class="btn-danger" id="killBtn" disabled>Kill worker<span class="dev-tag">dev only</span></button>
+      <button class="btn-primary" id="approveBtn" disabled hidden>Approve reply</button>
+      <button class="btn-ghost" id="resetBtn">Reset</button>
+    </div>
+    <div class="banner banner-crash" id="crashBanner">Worker killed — no event recorded. The step's lease will expire in a moment.</div>
+    <div class="banner banner-recover" id="recoverBanner">Expired lease found. Re-admitting the step as a new attempt — earlier steps are not re-run.</div>
+  </header>
+
+  <div class="body-grid">
+    <section class="panel">
+      <h2>Step timeline</h2>
+      <div class="tl" id="timeline"></div>
+    </section>
+    <section class="panel">
+      <h2>Event log</h2>
+      <div class="log" id="log"><div class="log-empty">No events yet. Run the workflow to start.</div></div>
+    </section>
+  </div>
+
+  <div class="strip">
+    <div class="card"><div class="k">At-least-once</div><p>A step may run more than once. Its side effect is only idempotent if the step author makes it so.</p></div>
+    <div class="card"><div class="k">Event-sourced</div><p>Every transition is an appended event. Current status is a projection, rebuilt on recovery.</p></div>
+    <div class="card"><div class="k">Lease-based recovery</div><p>No heartbeat, no crash report needed. A worker dies silently; an expired lease is what gets noticed.</p></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var steps = [
+    {name:'IngestTicket', sub:'parse payload'},
+    {name:'ClassifyTicket', sub:'LLM call'},
+    {name:'RequestApproval', sub:'AgentMail'},
+    {name:'SendReply', sub:'email send'},
+    {name:'UpdateTicketSystem', sub:'CRM update'},
+    {name:'Complete', sub:''}
+  ];
+  var state = steps.map(function(){ return {status:'pending', attempt:0}; });
+  var timelineEl = document.getElementById('timeline');
+  var logEl = document.getElementById('log');
+  var runBtn = document.getElementById('runBtn');
+  var killBtn = document.getElementById('killBtn');
+  var approveBtn = document.getElementById('approveBtn');
+  var resetBtn = document.getElementById('resetBtn');
+  var crashBanner = document.getElementById('crashBanner');
+  var recoverBanner = document.getElementById('recoverBanner');
+  var statusPill = document.getElementById('statusPill');
+  var statusText = document.getElementById('statusText');
+  var timers = [];
+  var startTime = null;
+  var currentWorkflowId = null;
+  var pollTimer = null;
+  var stepAnimationActive = false;
+
+  function clock(){
+    var s = Math.floor((Date.now() - startTime) / 1000);
+    var m = Math.floor(s/60); s = s%60;
+    return (m+':'+(s<10?'0':'')+s);
+  }
+  function after(ms, fn){ var t = setTimeout(fn, ms); timers.push(t); return t; }
+  function clearTimers(){ timers.forEach(clearTimeout); timers = []; }
+
+  function icon(status){
+    if(status==='completed') return '<svg viewBox="0 0 24 24"><circle class="ring" cx="12" cy="12" r="10" style="stroke:var(--accent)"/><path class="check drawn" d="M7 12.5l3 3 7-7"/></svg>';
+    if(status==='running') return '<svg viewBox="0 0 24 24"><circle class="ring running" cx="12" cy="12" r="10"/></svg>';
+    if(status==='waiting') return '<svg viewBox="0 0 24 24"><circle class="ring waiting" cx="12" cy="12" r="10"/><g class="hourglass"><path d="M9 7h6M9 17h6M9 7c0 3 6 3 6 0M9 17c0-3 6-3 6 0" stroke="var(--warn)" stroke-width="1.4" fill="none" stroke-linecap="round"/></g></svg>';
+    if(status==='crashed') return '<svg viewBox="0 0 24 24"><circle class="ring crashed" cx="12" cy="12" r="10"/><path d="M9 9l6 6M15 9l-6 6" stroke="var(--danger)" stroke-width="2" stroke-linecap="round"/></svg>';
+    return '<svg viewBox="0 0 24 24"><circle class="ring" cx="12" cy="12" r="10"/></svg>';
+  }
+
+  function subText(i){
+    var s = state[i];
+    if(s.status==='pending') return steps[i].sub;
+    if(s.status==='running') return steps[i].sub + (s.attempt>1 ? ' · attempt '+s.attempt : ' · running');
+    if(s.status==='crashed') return 'lease expiring…';
+    if(s.status==='waiting') return 'waiting for input';
+    if(s.status==='completed') return steps[i].sub + ' · done';
+    return steps[i].sub;
+  }
+
+  function render(){
+    timelineEl.innerHTML = steps.map(function(step, i){
+      var s = state[i];
+      var cls = 'step ' + s.status + (s.status==='crashed' ? ' active-crash' : '');
+      var connector = i < steps.length-1 ? '<div class="connector" style="margin-left:11px"></div>' : '';
+      return '<div class="'+cls+'"><div class="step-icon">'+icon(s.status)+'</div>'+
+             '<div class="step-main"><div class="step-name">'+step.name+'</div><div class="step-sub">'+subText(i)+'</div></div></div>'+connector;
+    }).join('');
+  }
+
+  function log(tag, cls, msg){
+    if(logEl.querySelector('.log-empty')) logEl.innerHTML = '';
+    var row = document.createElement('div');
+    row.className = 'ev new';
+    row.innerHTML = '<span class="ev-time">'+clock()+'</span><span class="ev-tag '+cls+'">'+tag+'</span><span class="ev-msg">'+msg+'</span>';
+    logEl.appendChild(row);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setStatus(kind, text){
+    statusPill.className = 'status-pill status-'+kind;
+    statusText.textContent = text;
+  }
+
+  function stopPolling(){
+    if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function startPolling(){
+    if(pollTimer || !currentWorkflowId) return;
+    pollTimer = setInterval(function(){
+      fetch('/workflows/' + encodeURIComponent(currentWorkflowId))
+        .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function(record){ applyWorkflowStatus(record.status); })
+        .catch(function(){});
+    }, 800);
+  }
+
+  function apiPost(url, body){
+    return fetch(url, {
+      method: 'POST',
+      headers: body ? {'Content-Type':'application/json'} : {},
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function(r){
+      if(!r.ok) return Promise.reject(r.status);
+      return r.json();
+    });
+  }
+
+  function jumpToWaitingState(){
+    clearTimers();
+    state[0] = {status:'completed', attempt:1};
+    state[1] = {status:'completed', attempt:1};
+    state[2] = {status:'waiting', attempt:1};
+    for(var j = 3; j < steps.length; j++) state[j] = {status:'pending', attempt:0};
+    render();
+    setStatus('waiting','Waiting for approval');
+    approveBtn.hidden = false;
+    approveBtn.disabled = false;
+    killBtn.disabled = true;
+    window.__killCurrent = null;
+  }
+
+  function jumpToCompletedState(){
+    clearTimers();
+    state = steps.map(function(){ return {status:'completed', attempt:1}; });
+    render();
+    setStatus('done','Completed');
+    log('WorkflowCompleted','ok', currentWorkflowId + ' resolved end to end');
+    killBtn.disabled = true;
+    stepAnimationActive = false;
+    window.__killCurrent = null;
+  }
+
+  function applyWorkflowStatus(status){
+    if(status === 'pending'){
+      setStatus('idle','Idle');
+      return;
+    }
+    if(status === 'running'){
+      setStatus('running','Running');
+      if(!stepAnimationActive){
+        stepAnimationActive = true;
+        runFrom(0);
+      }
+      return;
+    }
+    if(status === 'waiting'){
+      jumpToWaitingState();
+      return;
+    }
+    if(status === 'completed'){
+      stopPolling();
+      if(state[2].status === 'waiting'){
+        setStatus('running','Running');
+        runFrom(3);
+      } else if(state[steps.length - 1].status !== 'completed'){
+        jumpToCompletedState();
+      } else {
+        setStatus('done','Completed');
+        stepAnimationActive = false;
+      }
+    }
+  }
+
+  function reset(){
+    clearTimers();
+    stopPolling();
+    currentWorkflowId = null;
+    stepAnimationActive = false;
+    state = steps.map(function(){ return {status:'pending', attempt:0}; });
+    logEl.innerHTML = '<div class="log-empty">No events yet. Run the workflow to start.</div>';
+    setStatus('idle','Idle');
+    runBtn.disabled = false;
+    killBtn.disabled = true;
+    approveBtn.hidden = true;
+    crashBanner.classList.remove('show');
+    recoverBanner.classList.remove('show');
+    window.__killCurrent = null;
+    render();
+  }
+
+  function runStep(i, onDone){
+    state[i].status = 'running';
+    state[i].attempt += 1;
+    render();
+    log('StepStarted','info', steps[i].name + ' · attempt ' + state[i].attempt);
+    if(i === 1){ // ClassifyTicket: killable window
+      killBtn.disabled = false;
+      var killedRef = { killed:false };
+      window.__killCurrent = function(){
+        killedRef.killed = true;
+        killBtn.disabled = true;
+        state[1].status = 'crashed';
+        render();
+        crashBanner.classList.add('show');
+        after(1400, function(){
+          crashBanner.classList.remove('show');
+          recoverBanner.classList.add('show');
+          log('WorkerRecovered','warn','stale lease found for ClassifyTicket — re-admitting');
+          after(900, function(){
+            recoverBanner.classList.remove('show');
+            runStep(1, onDone);
+          });
+        });
+      };
+      after(2200, function(){
+        if(killedRef.killed) return;
+        killBtn.disabled = true;
+        window.__killCurrent = null;
+        state[1].status = 'completed';
+        render();
+        log('StepCompleted','ok', steps[1].name + ' → category: billing, urgency: normal');
+        onDone();
+      });
+      return;
+    }
+    var delay = i===0 ? 500 : 650;
+    after(delay, function(){
+      if(i===2){
+        state[i].status = 'waiting';
+        render();
+        log('StepWaiting','warn','RequestApproval → sent via AgentMail, workflow waiting');
+        setStatus('waiting','Waiting for approval');
+        approveBtn.hidden = false;
+        approveBtn.disabled = false;
+        return; // paused until Approve is clicked
+      }
+      state[i].status = 'completed';
+      render();
+      log('StepCompleted','ok', steps[i].name + ' completed');
+      onDone();
+    });
+  }
+
+  function runFrom(i){
+    if(i >= steps.length){
+      stepAnimationActive = false;
+      fetch('/workflows/' + encodeURIComponent(currentWorkflowId))
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(record){
+          if(record && record.status === 'completed'){
+            setStatus('done','Completed');
+            log('WorkflowCompleted','ok', currentWorkflowId + ' resolved end to end');
+          }
+        })
+        .catch(function(){});
+      return;
+    }
+    runStep(i, function(){ runFrom(i+1); });
+  }
+
+  runBtn.addEventListener('click', function(){
+    runBtn.disabled = true;
+    currentWorkflowId = 'ticket-' + Date.now();
+    startTime = Date.now();
+    stepAnimationActive = false;
+    apiPost('/workflows', {id: currentWorkflowId})
+      .then(function(){ return apiPost('/workflows/' + encodeURIComponent(currentWorkflowId) + '/run'); })
+      .then(function(record){
+        log('WorkflowStarted','info', currentWorkflowId);
+        startPolling();
+        applyWorkflowStatus(record.status);
+      })
+      .catch(function(){
+        log('Error','warn','failed to start workflow');
+        runBtn.disabled = false;
+        currentWorkflowId = null;
+      });
+  });
+
+  killBtn.addEventListener('click', function(){
+    if(window.__killCurrent) window.__killCurrent();
+  });
+
+  approveBtn.addEventListener('click', function(){
+    if(!currentWorkflowId) return;
+    approveBtn.disabled = true;
+    approveBtn.hidden = true;
+    apiPost('/workflows/' + encodeURIComponent(currentWorkflowId) + '/approve')
+      .then(function(record){
+        log('ApprovalReceived','ok','human approved the drafted reply');
+        applyWorkflowStatus(record.status);
+      })
+      .catch(function(){
+        log('Error','warn','approve failed');
+        approveBtn.hidden = false;
+        approveBtn.disabled = false;
+      });
+  });
+
+  resetBtn.addEventListener('click', reset);
+
+  render();
+})();
+</script>

@@ -8,15 +8,20 @@ use api::ApiState;
 use axum::{
     Router,
     http::StatusCode,
-    routing::get,
+    routing::{get, get_service},
 };
+use tower_http::services::ServeFile;
 
 fn app() -> Router {
     let state = ApiState::new();
     Router::new()
-        .route("/health", get(|| async { (StatusCode::OK, "ok") }))
-        .merge(api::router())
-        .with_state(state)
+        .route("/", get_service(ServeFile::new("web/index.html")))
+        .merge(
+            Router::new()
+                .route("/health", get(|| async { (StatusCode::OK, "ok") }))
+                .merge(api::router())
+                .with_state(state),
+        )
 }
 
 #[tokio::main]
@@ -33,6 +38,31 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn index_returns_html() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .expect("content-type")
+            .to_str()
+            .expect("content-type utf8");
+        assert!(
+            content_type.starts_with("text/html"),
+            "expected text/html, got {content_type}"
+        );
+    }
 
     #[tokio::test]
     async fn health_returns_ok() {
