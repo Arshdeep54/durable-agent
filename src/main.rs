@@ -1,5 +1,6 @@
 mod classifier;
 mod domain;
+mod ticket_system;
 
 use axum::{
     Router,
