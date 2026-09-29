@@ -1,3 +1,4 @@
+mod approval;
 mod classifier;
 mod domain;
 mod ticket_system;
