@@ -2,7 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agentq::{
-    DurableStore, Event, Priority, Queue, SqliteStore, WorkflowEngine,
+    DurableStore, EngineError, Event, Priority, Queue, SqliteStore, StoreError,
+    WorkflowEngine, recover,
 };
 use axum::{
     Json, Router,
@@ -89,6 +90,57 @@ impl ApiState {
             mailer,
             ticket_system,
         }
+    }
+
+    pub async fn recover_pending_workflows(&self) -> Result<usize, EngineError> {
+        let ids = self.registry.list().map_err(|e| {
+            EngineError::Store(StoreError::Backend(e.to_string()))
+        })?;
+
+        for id in ids {
+            let ticket = match self.registry.get(&id) {
+                Ok(Some(ticket)) => ticket,
+                Ok(None) => {
+                    eprintln!("startup recovery: workflow {id} not found in registry");
+                    continue;
+                }
+                Err(e) => {
+                    eprintln!("startup recovery: registry get for {id} failed: {e}");
+                    continue;
+                }
+            };
+
+            let events = match self.reader_store.load_events(&id) {
+                Ok(events) => events,
+                Err(e) => {
+                    eprintln!("startup recovery: load_events for {id} failed: {e}");
+                    continue;
+                }
+            };
+
+            let (status, _) = workflow_status_from_events(&events);
+            if status == "completed" || status == "failed" {
+                continue;
+            }
+
+            let workflow = ticket_workflow(&id);
+            let bodies = build_step_bodies(
+                ticket,
+                Arc::clone(&self.classifier),
+                Arc::clone(&self.approval_sender),
+                Arc::clone(&self.mailer),
+                Arc::clone(&self.ticket_system),
+                Arc::clone(&self.engine),
+                Arc::clone(&self.reader_store),
+            );
+
+            if let Err(e) = self.engine.register_workflow(workflow, bodies) {
+                eprintln!("startup recovery: register_workflow for {id} failed: {e}");
+                continue;
+            }
+        }
+
+        recover(&self.engine).await
     }
 }
 
@@ -276,6 +328,126 @@ async fn approve_workflow(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::Ticket;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    fn recovery_test_db_path() -> String {
+        std::env::temp_dir()
+            .join(format!(
+                "durable-agent-recover-test-{}.db",
+                std::process::id()
+            ))
+            .to_str()
+            .expect("temp db path utf8")
+            .to_string()
+    }
+
+    fn sample_ticket(id: &str) -> Ticket {
+        Ticket {
+            id: id.to_string(),
+            customer_id: "customer@example.com".to_string(),
+            subject: "Need help".to_string(),
+            body: "Just saying hello".to_string(),
+        }
+    }
+
+    fn seed_crash_mid_send_reply(path: &str, workflow_id: &str, classification_json: &str) {
+        let store = SqliteStore::new(path).expect("seed store");
+        store
+            .append_event(&Event::WorkflowStarted {
+                workflow_id: workflow_id.to_string(),
+            })
+            .expect("WorkflowStarted");
+        for (step_index, output) in [
+            (0usize, workflow_id.to_string()),
+            (1, classification_json.to_string()),
+            (2, "approved reply text".to_string()),
+        ] {
+            store
+                .append_event(&Event::StepCompleted {
+                    workflow_id: workflow_id.to_string(),
+                    step_index,
+                    output,
+                })
+                .expect("StepCompleted");
+        }
+
+        let expired = SystemTime::now()
+            .checked_sub(Duration::from_secs(120))
+            .unwrap_or(UNIX_EPOCH);
+        let since_epoch = expired.duration_since(UNIX_EPOCH).expect("epoch");
+        let expires_at_secs = since_epoch.as_secs() as i64;
+        let expires_at_nanos = since_epoch.subsec_nanos() as i64;
+
+        let conn = rusqlite::Connection::open(path).expect("open seed db");
+        conn.execute(
+            "INSERT INTO steps (workflow_id, step_index, status, worker_id, expires_at_secs, expires_at_nanos, output, reason, attempt)
+             VALUES (?1, ?2, 'leased', 'dead-worker', ?3, ?4, NULL, NULL, 0)
+             ON CONFLICT(workflow_id, step_index) DO UPDATE SET
+               status = 'leased',
+               worker_id = excluded.worker_id,
+               expires_at_secs = excluded.expires_at_secs,
+               expires_at_nanos = excluded.expires_at_nanos,
+               output = NULL,
+               reason = NULL,
+               attempt = excluded.attempt",
+            rusqlite::params![workflow_id, 3_i64, expires_at_secs, expires_at_nanos],
+        )
+        .expect("seed expired lease on SendReply step");
+    }
+
+    fn workflow_completed(events: &[Event]) -> bool {
+        events
+            .iter()
+            .any(|e| matches!(e, Event::WorkflowCompleted { .. }))
+    }
+
+    #[tokio::test]
+    async fn recover_pending_workflows_after_simulated_crash() {
+        use crate::classifier::{Classifier, MockClassifier};
+
+        let path = recovery_test_db_path();
+        let _ = std::fs::remove_file(&path);
+
+        let workflow_id = "wf-recover-startup";
+        let ticket = sample_ticket(workflow_id);
+        let classification = MockClassifier
+            .classify(&ticket)
+            .await
+            .expect("mock classify");
+        let classification_json =
+            serde_json::to_string(&classification).expect("classification json");
+
+        {
+            let registry = WorkflowRegistry::new(&path).expect("registry");
+            registry.insert(&ticket).expect("insert ticket");
+            seed_crash_mid_send_reply(&path, workflow_id, &classification_json);
+        }
+
+        let state = ApiState::new(&path);
+        let recovered = state
+            .recover_pending_workflows()
+            .await
+            .expect("recover_pending_workflows");
+        assert!(recovered >= 1, "expected at least one re-admitted step");
+
+        let reader = SqliteStore::new(&path).expect("poll store");
+        for _ in 0..200 {
+            let events = reader
+                .load_events(workflow_id)
+                .expect("load_events while polling");
+            if workflow_completed(&events) {
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+
+        let events = reader.load_events(workflow_id).expect("final events");
+        panic!(
+            "workflow did not reach WorkflowCompleted after recovery; last events: {events:?}"
+        );
+    }
 
     #[test]
     fn workflow_status_pending_without_events() {

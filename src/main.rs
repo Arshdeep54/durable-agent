@@ -31,6 +31,10 @@ fn app(state: ApiState) -> Router {
 #[tokio::main]
 async fn main() {
     let state = ApiState::new(DB_PATH);
+    match state.recover_pending_workflows().await {
+        Ok(count) => println!("startup recovery: re-admitted {count} interrupted step(s)"),
+        Err(e) => eprintln!("startup recovery failed: {e}"),
+    }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
         .await
         .expect("bind 127.0.0.1:8080");
