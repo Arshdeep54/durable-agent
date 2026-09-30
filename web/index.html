@@ -476,12 +476,317 @@ body {
   margin: 0 0 var(--space-2);
 }
 
-.detail-placeholder-note {
+.detail-header {
+  margin-bottom: var(--space-5);
+}
+
+.detail-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0 0 var(--space-3);
+}
+
+.detail-status .status-dot {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.detail-status.is-pending,
+.detail-status.is-running { color: var(--running); }
+.detail-status.is-waiting { color: var(--warning); }
+.detail-status.is-completed { color: var(--success); }
+.detail-status.is-failed,
+.detail-status.is-cancelled { color: var(--error); }
+
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-5);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+
+.detail-meta strong {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.detail-error {
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  max-width: 400px;
+  margin-top: var(--space-4);
+}
+
+.detail-error h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 var(--space-2);
+}
+
+.detail-error p {
   font-size: 13px;
   color: var(--fg-secondary);
-  margin: var(--space-4) 0 0;
-  padding-top: var(--space-4);
+  margin: 0 0 var(--space-4);
+}
+
+.exec-graph-wrap {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
   border-top: 1px solid var(--border);
+}
+
+.exec-graph-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  margin: 0 0 var(--space-5);
+}
+
+.exec-graph {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  max-width: 320px;
+}
+
+.exec-graph-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.exec-connector {
+  width: 1px;
+  height: 28px;
+  background: var(--border);
+  flex: none;
+}
+
+.exec-connector.is-passed {
+  background: var(--border-strong);
+}
+
+.exec-step {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto auto;
+  gap: 2px var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  text-align: left;
+}
+
+.exec-step-name {
+  grid-column: 1;
+  grid-row: 1;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  margin: 0;
+}
+
+.exec-step-label {
+  grid-column: 1;
+  grid-row: 2;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0;
+  color: var(--fg-secondary);
+}
+
+.exec-step-duration {
+  grid-column: 1;
+  grid-row: 3;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-secondary);
+  margin: 0;
+  min-height: 1em;
+}
+
+.exec-step-indicator {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.exec-step-indicator-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 500;
+}
+
+.exec-step--idle {
+  border-style: dashed;
+  background: transparent;
+}
+
+.exec-step--idle .exec-step-label {
+  letter-spacing: 0.04em;
+  font-weight: 500;
+  text-transform: none;
+  font-size: 11px;
+}
+
+.exec-step--idle .exec-step-indicator-inner {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 50%;
+  font-size: 0;
+}
+
+.exec-step--running {
+  border-color: color-mix(in srgb, var(--running) 35%, var(--border));
+}
+
+.exec-step--running .exec-step-label {
+  color: var(--running);
+}
+
+.exec-step--running .exec-step-indicator-inner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--running);
+  border-radius: 50%;
+  border-top-color: transparent;
+  font-size: 0;
+}
+
+.exec-step--waiting {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.exec-step--waiting .exec-step-label {
+  color: var(--warning);
+}
+
+.exec-step--waiting .exec-step-indicator-inner::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--warning);
+  display: block;
+}
+
+.exec-step--completed .exec-step-label {
+  color: var(--success);
+}
+
+.exec-step--completed .exec-step-indicator-inner {
+  font-size: 16px;
+  color: var(--success);
+}
+
+.exec-step--failed {
+  border-color: color-mix(in srgb, var(--error) 35%, var(--border));
+}
+
+.exec-step--failed .exec-step-label {
+  color: var(--error);
+}
+
+.exec-step--failed .exec-step-indicator-inner {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--error);
+}
+
+.exec-step--cancelled {
+  opacity: 0.72;
+  border-style: dotted;
+}
+
+.exec-step--cancelled .exec-step-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+  color: var(--fg-secondary);
+}
+
+.exec-step--cancelled .exec-step-label {
+  color: var(--fg-secondary);
+}
+
+.exec-step--cancelled .exec-step-indicator-inner {
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+
+.exec-step--recovering {
+  border-color: color-mix(in srgb, var(--running) 30%, var(--border));
+}
+
+.exec-step--recovering .exec-step-label {
+  color: var(--running);
+}
+
+.exec-step--recovering .exec-step-indicator-inner {
+  font-size: 16px;
+  color: var(--running);
+}
+
+.exec-step--retry {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+}
+
+.exec-step--retry .exec-step-label {
+  color: var(--warning);
+}
+
+.exec-step--retry .exec-step-indicator-inner {
+  font-size: 15px;
+  color: var(--warning);
+}
+
+.exec-step--timeout {
+  border-color: color-mix(in srgb, var(--error) 25%, var(--border));
+}
+
+.exec-step--timeout .exec-step-label {
+  color: var(--error);
+}
+
+.exec-step--timeout .exec-step-indicator-inner {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--error);
+  letter-spacing: -0.02em;
 }
 
 .modal-backdrop {
@@ -681,10 +986,21 @@ body {
         </div>
         <div id="workflows-detail-view" hidden>
           <button type="button" class="btn btn-ghost detail-back" id="btnBackToList">← Workflows</button>
-          <h2 class="detail-id" id="detailWorkflowId"></h2>
-          <p class="workflow-subject" id="detailWorkflowSubject"></p>
-          <p class="workflow-status" id="detailWorkflowStatus"></p>
-          <p class="detail-placeholder-note">Workflow detail view — execution graph and events arrive in the next release.</p>
+          <div class="detail-header">
+            <h2 class="detail-id" id="detailWorkflowId"></h2>
+            <p class="workflow-subject" id="detailWorkflowSubject"></p>
+            <p class="detail-status" id="detailWorkflowStatus"></p>
+            <p class="detail-meta" id="detailWorkflowMeta"></p>
+          </div>
+          <div id="detailWorkflowError" class="detail-error" hidden>
+            <h3>Couldn't load workflow</h3>
+            <p id="detailWorkflowErrorMsg"></p>
+            <button type="button" class="btn" id="detailWorkflowRetry">Retry</button>
+          </div>
+          <div class="exec-graph-wrap" id="execGraphWrap" hidden>
+            <h3 class="exec-graph-title">Execution</h3>
+            <ol class="exec-graph" id="execGraph" aria-label="Workflow execution graph"></ol>
+          </div>
         </div>
       </section>
 
@@ -809,6 +1125,12 @@ body {
   var detailWorkflowId = document.getElementById('detailWorkflowId');
   var detailWorkflowSubject = document.getElementById('detailWorkflowSubject');
   var detailWorkflowStatus = document.getElementById('detailWorkflowStatus');
+  var detailWorkflowMeta = document.getElementById('detailWorkflowMeta');
+  var detailWorkflowError = document.getElementById('detailWorkflowError');
+  var detailWorkflowErrorMsg = document.getElementById('detailWorkflowErrorMsg');
+  var detailWorkflowRetry = document.getElementById('detailWorkflowRetry');
+  var execGraphWrap = document.getElementById('execGraphWrap');
+  var execGraphEl = document.getElementById('execGraph');
   var newWorkflowModal = document.getElementById('newWorkflowModal');
   var newWorkflowForm = document.getElementById('newWorkflowForm');
   var newWorkflowError = document.getElementById('newWorkflowError');
@@ -821,6 +1143,10 @@ body {
   var workflowsPollTimer = null;
   var detailPollTimer = null;
   var listLoadedOnce = false;
+  var workflowStepNames = null;
+  var workflowStepNamesPromise = null;
+  var detailWorkflowIdCurrent = null;
+  var lastDetailRenderKey = '';
 
   function parseHashRoute() {
     var raw = (location.hash || '#/workflows').replace(/^#/, '');
@@ -909,6 +1235,237 @@ body {
     }
     var hr = Math.floor(min / 60);
     return hr + 'h';
+  }
+
+  function formatDetailDurationMs(ms) {
+    if (ms == null || ms < 0) {
+      return '—';
+    }
+    if (ms < 1000) {
+      return ms + 'ms';
+    }
+    return (ms / 1000).toFixed(1) + 's';
+  }
+
+  function formatStartedClock(millis) {
+    if (millis == null) {
+      return '—';
+    }
+    var d = new Date(millis);
+    return d.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+  }
+
+  function fetchWorkflowDefinition() {
+    if (workflowStepNames) {
+      return Promise.resolve(workflowStepNames);
+    }
+    if (workflowStepNamesPromise) {
+      return workflowStepNamesPromise;
+    }
+    workflowStepNamesPromise = fetch('/workflow-definition')
+      .then(function (r) {
+        if (!r.ok) {
+          throw new Error('definition ' + r.status);
+        }
+        return r.json();
+      })
+      .then(function (names) {
+        workflowStepNames = Array.isArray(names) ? names : [];
+        return workflowStepNames;
+      })
+      .catch(function () {
+        workflowStepNamesPromise = null;
+        return [];
+      });
+    return workflowStepNamesPromise;
+  }
+
+  function unwrapEvent(raw) {
+    if (!raw || typeof raw !== 'object') {
+      return null;
+    }
+    var keys = Object.keys(raw);
+    if (keys.length !== 1) {
+      return null;
+    }
+    return { kind: keys[0], payload: raw[keys[0]] };
+  }
+
+  function eventStepIndex(kind, payload) {
+    if (!payload || payload.step_index == null) {
+      return null;
+    }
+    var stepKinds = [
+      'StepStarted',
+      'StepCompleted',
+      'StepFailed',
+      'StepWaiting',
+      'StepResumed',
+      'RetryScheduled',
+      'WorkerRecovered'
+    ];
+    if (stepKinds.indexOf(kind) === -1) {
+      return null;
+    }
+    return payload.step_index;
+  }
+
+  function workflowCancelledFromEvents(events) {
+    for (var i = 0; i < events.length; i++) {
+      var u = unwrapEvent(events[i]);
+      if (u && u.kind === 'WorkflowCancelled') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function deriveStepStates(events, stepCount) {
+    var states = [];
+    var completed = [];
+    var i;
+    for (i = 0; i < stepCount; i++) {
+      states[i] = 'idle';
+      completed[i] = false;
+    }
+
+    for (i = 0; i < events.length; i++) {
+      var u = unwrapEvent(events[i]);
+      if (!u) {
+        continue;
+      }
+      var idx = eventStepIndex(u.kind, u.payload);
+      if (idx == null || idx < 0 || idx >= stepCount) {
+        continue;
+      }
+      if (u.kind === 'StepStarted') {
+        states[idx] = 'running';
+      } else if (u.kind === 'StepCompleted') {
+        states[idx] = 'completed';
+        completed[idx] = true;
+      } else if (u.kind === 'StepFailed') {
+        states[idx] = 'failed';
+      } else if (u.kind === 'StepWaiting') {
+        states[idx] = 'waiting';
+      } else if (u.kind === 'StepResumed') {
+        states[idx] = 'running';
+      } else if (u.kind === 'WorkerRecovered') {
+        states[idx] = 'recovering';
+      } else if (u.kind === 'RetryScheduled') {
+        states[idx] = 'retry';
+      }
+    }
+
+    if (workflowCancelledFromEvents(events)) {
+      for (i = 0; i < stepCount; i++) {
+        if (!completed[i]) {
+          states[i] = 'cancelled';
+        }
+      }
+    }
+
+    return { states: states, completed: completed };
+  }
+
+  var STEP_STATE_LABELS = {
+    idle: 'Not started',
+    running: 'Running',
+    waiting: 'Waiting',
+    completed: 'Completed',
+    failed: 'Failed',
+    cancelled: 'Cancelled',
+    recovering: 'Recovering',
+    retry: 'Retry scheduled',
+    timeout: 'Timed out'
+  };
+
+  var STEP_STATE_INDICATORS = {
+    idle: '',
+    running: '',
+    waiting: '',
+    completed: '✓',
+    failed: '×',
+    cancelled: '⊘',
+    recovering: '↻',
+    retry: '↺',
+    timeout: 'TO'
+  };
+
+  function detailRenderKey(wf, events, stepNames) {
+    var derived = deriveStepStates(events, stepNames.length);
+    return (
+      wf.id +
+      '|' +
+      wf.status +
+      '|' +
+      events.length +
+      '|' +
+      derived.states.join(',') +
+      '|' +
+      stepNames.join(',')
+    );
+  }
+
+  function renderExecutionGraph(stepNames, events) {
+    var derived = deriveStepStates(events, stepNames.length);
+    var states = derived.states;
+    execGraphEl.innerHTML = '';
+
+    stepNames.forEach(function (name, index) {
+      var state = states[index] || 'idle';
+      var li = document.createElement('li');
+      li.className = 'exec-graph-item';
+
+      var step = document.createElement('div');
+      step.className = 'exec-step exec-step--' + state;
+      step.setAttribute('data-step-index', String(index));
+
+      var title = document.createElement('p');
+      title.className = 'exec-step-name';
+      title.textContent = name;
+
+      var label = document.createElement('p');
+      label.className = 'exec-step-label';
+      label.textContent = STEP_STATE_LABELS[state] || state;
+
+      var duration = document.createElement('p');
+      duration.className = 'exec-step-duration';
+      duration.textContent = '';
+
+      var indicator = document.createElement('div');
+      indicator.className = 'exec-step-indicator';
+      var inner = document.createElement('span');
+      inner.className = 'exec-step-indicator-inner';
+      inner.setAttribute('aria-hidden', 'true');
+      var glyph = STEP_STATE_INDICATORS[state];
+      if (glyph) {
+        inner.textContent = glyph;
+      }
+      indicator.appendChild(inner);
+
+      step.appendChild(title);
+      step.appendChild(label);
+      step.appendChild(duration);
+      step.appendChild(indicator);
+      li.appendChild(step);
+
+      if (index < stepNames.length - 1) {
+        var conn = document.createElement('div');
+        conn.className = 'exec-connector';
+        if (state === 'completed') {
+          conn.classList.add('is-passed');
+        }
+        conn.setAttribute('aria-hidden', 'true');
+        li.appendChild(conn);
+      }
+
+      execGraphEl.appendChild(li);
+    });
   }
 
   function formatRelativeAgo(millis) {
@@ -1104,51 +1661,96 @@ body {
     }
   }
 
-  function renderWorkflowDetail(wf) {
+  function renderWorkflowDetailHeader(wf) {
     detailWorkflowId.textContent = wf.id;
     detailWorkflowSubject.textContent = wf.subject || '';
-    detailWorkflowStatus.className = 'workflow-status is-' + wf.status;
-    var dot = wf.status === 'completed' ? '✓ ' : '● ';
-    detailWorkflowStatus.textContent = dot + statusLabel(wf);
+    detailWorkflowStatus.className = 'detail-status is-' + wf.status;
+    detailWorkflowStatus.innerHTML = '';
+    var dot = document.createElement('span');
+    dot.className = 'status-dot';
+    dot.setAttribute('aria-hidden', 'true');
+    dot.textContent = wf.status === 'completed' ? '✓' : '●';
+    detailWorkflowStatus.appendChild(dot);
+    detailWorkflowStatus.appendChild(document.createTextNode(statusLabel(wf)));
+
+    detailWorkflowMeta.innerHTML = '';
+    var started = document.createElement('span');
+    started.innerHTML = 'Started <strong>' + formatStartedClock(wf.started_at_millis) + '</strong>';
+    var dur = document.createElement('span');
+    dur.innerHTML = 'Duration <strong>' + formatDetailDurationMs(wf.duration_millis) + '</strong>';
+    detailWorkflowMeta.appendChild(started);
+    detailWorkflowMeta.appendChild(dur);
+  }
+
+  function setDetailError(message) {
+    detailWorkflowError.hidden = false;
+    detailWorkflowErrorMsg.textContent = message;
+    execGraphWrap.hidden = true;
+  }
+
+  function clearDetailError() {
+    detailWorkflowError.hidden = true;
+  }
+
+  function refreshWorkflowDetail(id) {
+    return Promise.all([
+      fetch('/workflows/' + encodeURIComponent(id)).then(function (r) {
+        if (!r.ok) {
+          throw new Error('The API returned ' + r.status + '.');
+        }
+        return r.json();
+      }),
+      fetch('/workflows/' + encodeURIComponent(id) + '/events').then(function (r) {
+        if (!r.ok) {
+          throw new Error('Events API returned ' + r.status + '.');
+        }
+        return r.json();
+      }),
+      fetchWorkflowDefinition()
+    ])
+      .then(function (parts) {
+        var wf = parts[0];
+        var events = Array.isArray(parts[1]) ? parts[1] : [];
+        var stepNames = parts[2];
+        var key = detailRenderKey(wf, events, stepNames);
+        renderWorkflowDetailHeader(wf);
+        clearDetailError();
+        if (!stepNames.length) {
+          execGraphWrap.hidden = true;
+          setDetailError('Could not load workflow step definition.');
+          return;
+        }
+        execGraphWrap.hidden = false;
+        if (key !== lastDetailRenderKey) {
+          renderExecutionGraph(stepNames, events);
+          lastDetailRenderKey = key;
+        }
+      })
+      .catch(function (err) {
+        setDetailError(err.message || 'Request failed.');
+      });
   }
 
   function loadWorkflowDetail(id) {
+    detailWorkflowIdCurrent = id;
+    lastDetailRenderKey = '';
     detailWorkflowId.textContent = id;
     detailWorkflowSubject.textContent = '';
     detailWorkflowStatus.textContent = '';
-    detailWorkflowStatus.className = 'workflow-status';
-
-    fetch('/workflows/' + encodeURIComponent(id))
-      .then(function (r) {
-        if (!r.ok) {
-          throw new Error(String(r.status));
-        }
-        return r.json();
-      })
-      .then(function (wf) {
-        renderWorkflowDetail(wf);
-      })
-      .catch(function () {
-        detailWorkflowSubject.textContent = 'Could not load workflow summary.';
-      });
+    detailWorkflowStatus.className = 'detail-status';
+    detailWorkflowMeta.textContent = '';
+    execGraphEl.innerHTML = '';
+    execGraphWrap.hidden = true;
+    clearDetailError();
+    refreshWorkflowDetail(id);
   }
 
   function startDetailPoll(id) {
     stopDetailPoll();
     detailPollTimer = setInterval(function () {
-      fetch('/workflows/' + encodeURIComponent(id))
-        .then(function (r) {
-          if (!r.ok) {
-            return null;
-          }
-          return r.json();
-        })
-        .then(function (wf) {
-          if (wf) {
-            renderWorkflowDetail(wf);
-          }
-        })
-        .catch(function () {});
+      if (detailWorkflowIdCurrent === id) {
+        refreshWorkflowDetail(id);
+      }
     }, WORKFLOWS_POLL_MS);
   }
 
@@ -1255,6 +1857,12 @@ body {
     navigateTo('/workflows');
   });
   workflowsListRetry.addEventListener('click', fetchWorkflows);
+  detailWorkflowRetry.addEventListener('click', function () {
+    if (detailWorkflowIdCurrent) {
+      loadWorkflowDetail(detailWorkflowIdCurrent);
+      startDetailPoll(detailWorkflowIdCurrent);
+    }
+  });
 
   window.addEventListener('hashchange', applyRoute);
   window.addEventListener('focus', function () {
