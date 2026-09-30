@@ -22,8 +22,11 @@ use crate::domain::Ticket;
 use crate::registry::WorkflowRegistry;
 use crate::steps::build_step_bodies;
 use crate::ticket_system::{InMemoryTicketSystem, TicketSystem};
+use crate::tracing_sink::{NoopSink, RespanSink, TraceSink, spawn_workflow_trace_batch};
 use crate::webhook::agentmail_webhook;
 use crate::workflow_def::ticket_workflow;
+
+const WORKER_ID: &str = "worker-1";
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -36,6 +39,8 @@ pub struct ApiState {
     approval_sender: Arc<dyn ApprovalSender>,
     mailer: Arc<dyn CustomerMailer>,
     ticket_system: Arc<dyn TicketSystem>,
+    trace_sink: Arc<dyn TraceSink>,
+    worker_id: String,
 }
 
 impl ApiState {
@@ -51,14 +56,22 @@ impl ApiState {
         Self::build(db_path, Some(webhook_secret.to_string()))
     }
 
+    #[cfg(test)]
+    pub fn new_with_trace_sink(db_path: &str, trace_sink: Arc<dyn TraceSink>) -> Self {
+        let mut state = Self::build(db_path, None);
+        state.trace_sink = trace_sink;
+        state
+    }
+
     fn build(db_path: &str, webhook_secret: Option<String>) -> Self {
         let engine_store = SqliteStore::new(db_path).expect("engine sqlite store");
         let reader_store = Arc::new(SqliteStore::new(db_path).expect("reader sqlite store"));
         let queue = Queue::builder().start();
+        let worker_id = WORKER_ID.to_string();
         let engine = Arc::new(WorkflowEngine::new(
             queue,
             engine_store,
-            "worker-1".to_string(),
+            worker_id.clone(),
             Duration::from_secs(30),
             Priority::Medium,
         ));
@@ -95,6 +108,14 @@ impl ApiState {
 
         let ticket_system: Arc<dyn TicketSystem> = Arc::new(InMemoryTicketSystem::new());
 
+        let trace_sink: Arc<dyn TraceSink> = match std::env::var("RESPAN_API_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
+        {
+            Some(key) => Arc::new(RespanSink::new(key)),
+            None => Arc::new(NoopSink),
+        };
+
         Self {
             engine,
             reader_store,
@@ -105,6 +126,8 @@ impl ApiState {
             approval_sender,
             mailer,
             ticket_system,
+            trace_sink,
+            worker_id,
         }
     }
 
@@ -113,6 +136,8 @@ impl ApiState {
             .registry
             .list()
             .map_err(|e| EngineError::Store(StoreError::Backend(e.to_string())))?;
+
+        let mut recovery_trace_targets: Vec<String> = Vec::new();
 
         for id in ids {
             let ticket = match self.registry.get(&id) {
@@ -156,9 +181,19 @@ impl ApiState {
                 eprintln!("startup recovery: register_workflow for {id} failed: {e}");
                 continue;
             }
+            recovery_trace_targets.push(id);
         }
 
-        recover(&self.engine).await
+        let count = recover(&self.engine).await?;
+        for workflow_id in recovery_trace_targets {
+            spawn_workflow_trace_batch(
+                Arc::clone(&self.reader_store),
+                Arc::clone(&self.trace_sink),
+                self.worker_id.clone(),
+                workflow_id,
+            );
+        }
+        Ok(count)
     }
 }
 
@@ -197,12 +232,12 @@ fn workflow_status_from_events(events: &[Event]) -> (String, Option<usize>) {
             }
             Event::StepResumed { step_index, .. }
             | Event::StepCompleted { step_index, .. }
-            | Event::WorkerRecovered { step_index, .. } => {
-                if waiting_step == Some(*step_index) {
-                    waiting_step = None;
-                    if status == "waiting" {
-                        status = "running".to_string();
-                    }
+            | Event::WorkerRecovered { step_index, .. }
+                if waiting_step == Some(*step_index) =>
+            {
+                waiting_step = None;
+                if status == "waiting" {
+                    status = "running".to_string();
                 }
             }
             _ => {}
@@ -331,10 +366,15 @@ async fn run_workflow(
     );
 
     let engine = Arc::clone(&state.engine);
+    let reader_store = Arc::clone(&state.reader_store);
+    let trace_sink = Arc::clone(&state.trace_sink);
+    let worker_id = state.worker_id.clone();
+    let workflow_id = id.clone();
     tokio::spawn(async move {
         if let Err(e) = engine.run(workflow, bodies).await {
             eprintln!("workflow run failed: {e}");
         }
+        spawn_workflow_trace_batch(reader_store, trace_sink, worker_id, workflow_id);
     });
 
     Ok(StatusCode::ACCEPTED)
@@ -365,6 +405,9 @@ fn waiting_step_index(reader_store: &SqliteStore, id: &str) -> Result<usize, Sta
 
 fn spawn_resume(
     engine: Arc<WorkflowEngine<SqliteStore>>,
+    reader_store: Arc<SqliteStore>,
+    trace_sink: Arc<dyn TraceSink>,
+    worker_id: String,
     id: String,
     step_index: usize,
     input: String,
@@ -373,6 +416,7 @@ fn spawn_resume(
         if let Err(e) = engine.resume(&id, step_index, input).await {
             eprintln!("workflow resume failed: {e}");
         }
+        spawn_workflow_trace_batch(reader_store, trace_sink, worker_id, id);
     });
 }
 
@@ -383,7 +427,15 @@ async fn approve_workflow(
 ) -> Result<StatusCode, StatusCode> {
     let step_index = waiting_step_index(state.reader_store.as_ref(), &id)?;
     let input = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
-    spawn_resume(Arc::clone(&state.engine), id, step_index, input);
+    spawn_resume(
+        Arc::clone(&state.engine),
+        Arc::clone(&state.reader_store),
+        Arc::clone(&state.trace_sink),
+        state.worker_id.clone(),
+        id,
+        step_index,
+        input,
+    );
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -399,7 +451,15 @@ async fn reject_workflow(
     } else {
         format!("rejected:{reason}")
     };
-    spawn_resume(Arc::clone(&state.engine), id, step_index, input);
+    spawn_resume(
+        Arc::clone(&state.engine),
+        Arc::clone(&state.reader_store),
+        Arc::clone(&state.trace_sink),
+        state.worker_id.clone(),
+        id,
+        step_index,
+        input,
+    );
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -622,6 +682,9 @@ mod tests {
 
         spawn_resume(
             Arc::clone(&state.engine),
+            Arc::clone(&state.reader_store),
+            Arc::clone(&state.trace_sink),
+            state.worker_id.clone(),
             workflow_id.to_string(),
             step_index,
             "rejected:post-restart".to_string(),
@@ -844,6 +907,226 @@ mod tests {
         assert!(dev_kill_allowed());
 
         unsafe { std::env::remove_var("DURABLE_AGENT_ALLOW_DEV_KILL") };
+    }
+
+    #[tokio::test]
+    async fn workflow_completes_without_respan_api_key() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        unsafe { std::env::remove_var("RESPAN_API_KEY") };
+        assert!(std::env::var("RESPAN_API_KEY").is_err());
+
+        let path = recovery_test_db_path("no-respan");
+        let _ = std::fs::remove_file(&path);
+        let app = router().with_state(ApiState::new(&path));
+        let workflow_id = "wf-no-respan";
+        let ticket_json = format!(
+            r#"{{
+            "id": "{workflow_id}",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }}"#
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/workflows/{workflow_id}/run"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        for _ in 0..200 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/workflows/{workflow_id}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("oneshot");
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let view: serde_json::Value = serde_json::from_slice(&body).expect("json");
+            if view["status"] == "waiting" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/workflows/{workflow_id}/approve"))
+                    .body(Body::from("approved reply text"))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        for _ in 0..200 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/workflows/{workflow_id}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("oneshot");
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let view: serde_json::Value = serde_json::from_slice(&body).expect("json");
+            if view["status"] == "completed" {
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("workflow did not complete without RESPAN_API_KEY");
+    }
+
+    #[tokio::test]
+    async fn respan_failure_does_not_block_workflow() {
+        use crate::tracing_sink::RespanSink;
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let path = recovery_test_db_path("respan-fail");
+        let _ = std::fs::remove_file(&path);
+        let sink = Arc::new(RespanSink::with_ingest_url(
+            "test-key".into(),
+            "http://127.0.0.1:1/".into(),
+        ));
+        let app = router().with_state(ApiState::new_with_trace_sink(&path, sink));
+        let workflow_id = "wf-respan-fail";
+        let ticket_json = format!(
+            r#"{{
+            "id": "{workflow_id}",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }}"#
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/workflows/{workflow_id}/run"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        for _ in 0..200 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/workflows/{workflow_id}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("oneshot");
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let view: serde_json::Value = serde_json::from_slice(&body).expect("json");
+            if view["status"] == "waiting" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/workflows/{workflow_id}/approve"))
+                    .body(Body::from("approved reply text"))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        for _ in 0..200 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/workflows/{workflow_id}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("oneshot");
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let view: serde_json::Value = serde_json::from_slice(&body).expect("json");
+            if view["status"] == "completed" {
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("workflow did not complete when respan ingest is unreachable");
     }
 
     #[cfg(feature = "dev-tools")]

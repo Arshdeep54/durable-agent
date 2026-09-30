@@ -6,6 +6,7 @@ mod domain;
 mod registry;
 mod steps;
 mod ticket_system;
+mod tracing_sink;
 mod webhook;
 mod workflow_def;
 
