@@ -1,11 +1,26 @@
 use std::sync::Arc;
 
-use agentq::{DurableStore, Event, StepFunc, WaitForInput, WorkflowEngine};
+use agentq::{DurableStore, Event, NonRetryable, StepFunc, WaitForInput, WorkflowEngine};
 
 use crate::approval::{ApprovalSender, CustomerMailer};
 use crate::classifier::Classifier;
 use crate::domain::{Classification, Ticket};
 use crate::ticket_system::TicketSystem;
+
+fn is_non_retryable_status(status: Option<u16>) -> bool {
+    matches!(status, Some(code) if (400..500).contains(&code) && code != 429)
+}
+
+fn http_adapter_step_error<E>(err: E, status: Option<u16>) -> Box<dyn std::error::Error + Send + Sync>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    if is_non_retryable_status(status) {
+        Box::new(NonRetryable(err.to_string()))
+    } else {
+        Box::new(err)
+    }
+}
 
 fn step_completed_output(events: &[Event], step_index: usize) -> Option<String> {
     events
@@ -42,7 +57,10 @@ pub fn build_step_bodies(
         let ticket = ticket_classify.clone();
         let classifier = Arc::clone(&classifier_classify);
         Box::pin(async move {
-            let classification = classifier.classify(&ticket).await?;
+            let classification = classifier.classify(&ticket).await.map_err(|e| {
+                let status = e.status;
+                http_adapter_step_error(e, status)
+            })?;
             Ok(serde_json::to_string(&classification)?)
         })
     });
@@ -67,7 +85,11 @@ pub fn build_step_bodies(
             let classification: Classification = serde_json::from_str(&classification_json)?;
             approval_sender
                 .request_approval(&ticket, &classification.draft_reply)
-                .await?;
+                .await
+                .map_err(|e| {
+                    let status = e.status;
+                    http_adapter_step_error(e, status)
+                })?;
             Err(Box::new(WaitForInput("awaiting human approval".to_string()))
                 as Box<dyn std::error::Error + Send + Sync>)
         })
@@ -87,7 +109,11 @@ pub fn build_step_bodies(
             let subject = format!("Re: {}", ticket.subject);
             mailer
                 .send_reply(&ticket.customer_id, &subject, &approved_reply)
-                .await?;
+                .await
+                .map_err(|e| {
+                    let status = e.status;
+                    http_adapter_step_error(e, status)
+                })?;
             Ok(approved_reply)
         })
     });
@@ -120,7 +146,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use agentq::{DurableStore, Event, Priority, Queue, SqliteStore, WorkflowEngine};
+    use agentq::{DurableStore, Event, NonRetryable, Priority, Queue, SqliteStore, WorkflowEngine};
 
     use crate::approval::{MockApprovalSender, MockCustomerMailer};
     use crate::classifier::MockClassifier;
@@ -128,7 +154,42 @@ mod tests {
     use crate::ticket_system::InMemoryTicketSystem;
     use crate::workflow_def::ticket_workflow;
 
-    use super::build_step_bodies;
+    use super::{build_step_bodies, http_adapter_step_error, is_non_retryable_status};
+
+    #[test]
+    fn is_non_retryable_status_classifies_http_codes() {
+        assert!(!is_non_retryable_status(None));
+        assert!(!is_non_retryable_status(Some(429)));
+        assert!(!is_non_retryable_status(Some(500)));
+        assert!(!is_non_retryable_status(Some(503)));
+        assert!(is_non_retryable_status(Some(400)));
+        assert!(is_non_retryable_status(Some(404)));
+        assert!(is_non_retryable_status(Some(422)));
+    }
+
+    #[derive(Debug)]
+    struct SampleAdapterError(String);
+
+    impl std::fmt::Display for SampleAdapterError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl std::error::Error for SampleAdapterError {}
+
+    #[test]
+    fn http_adapter_step_error_wraps_other_client_errors() {
+        let retryable = http_adapter_step_error(SampleAdapterError("rate limited".into()), Some(429));
+        assert!(retryable.downcast_ref::<NonRetryable>().is_none());
+
+        let transient = http_adapter_step_error(SampleAdapterError("offline".into()), None);
+        assert!(transient.downcast_ref::<NonRetryable>().is_none());
+
+        let permanent =
+            http_adapter_step_error(SampleAdapterError("bad request".into()), Some(400));
+        assert!(permanent.downcast_ref::<NonRetryable>().is_some());
+    }
 
     fn sample_ticket() -> Ticket {
         Ticket {

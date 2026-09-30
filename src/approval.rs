@@ -5,11 +5,14 @@ use std::future::Future;
 use std::pin::Pin;
 
 #[derive(Debug)]
-pub struct ApprovalError(pub String);
+pub struct ApprovalError {
+    pub message: String,
+    pub status: Option<u16>,
+}
 
 impl std::fmt::Display for ApprovalError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        self.message.fmt(f)
     }
 }
 
@@ -105,7 +108,10 @@ impl AgentMailSender {
             }))
             .send()
             .await
-            .map_err(|e| ApprovalError(e.to_string()))?;
+            .map_err(|e| ApprovalError {
+                message: e.to_string(),
+                status: None,
+            })?;
 
         let status = response.status();
         if status.is_success() {
@@ -115,9 +121,10 @@ impl AgentMailSender {
                 .text()
                 .await
                 .unwrap_or_else(|_| String::new());
-            Err(ApprovalError(format!(
-                "agentmail send failed with {status}: {body}"
-            )))
+            Err(ApprovalError {
+                message: format!("agentmail send failed with {status}: {body}"),
+                status: Some(status.as_u16()),
+            })
         }
     }
 }

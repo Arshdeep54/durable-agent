@@ -2,6 +2,7 @@
 
 use crate::domain::{Classification, Ticket};
 use async_openai::Client;
+use async_openai::error::OpenAIError;
 use async_openai::config::OpenAIConfig;
 use async_openai::types::chat::{
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage,
@@ -11,11 +12,14 @@ use std::future::Future;
 use std::pin::Pin;
 
 #[derive(Debug)]
-pub struct ClassifyError(pub String);
+pub struct ClassifyError {
+    pub message: String,
+    pub status: Option<u16>,
+}
 
 impl std::fmt::Display for ClassifyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        self.message.fmt(f)
     }
 }
 
@@ -47,6 +51,14 @@ fn mock_classify(body: &str) -> Classification {
         draft_reply: format!(
             "Thanks for reaching out about your {category} issue — we're on it."
         ),
+    }
+}
+
+fn openai_error_status(error: &OpenAIError) -> Option<u16> {
+    match error {
+        OpenAIError::ApiError(response) => Some(response.status_code.as_u16()),
+        OpenAIError::Reqwest(error) => error.status().map(|status| status.as_u16()),
+        _ => None,
     }
 }
 
@@ -102,17 +114,24 @@ impl Classifier for OpenAiClassifier {
                 .chat()
                 .create(request)
                 .await
-                .map_err(|e| ClassifyError(e.to_string()))?;
+                .map_err(|e| ClassifyError {
+                    message: e.to_string(),
+                    status: openai_error_status(&e),
+                })?;
 
             let content = response
                 .choices
                 .first()
                 .and_then(|c| c.message.content.clone())
                 .filter(|s| !s.trim().is_empty())
-                .ok_or_else(|| ClassifyError("empty model response".into()))?;
+                .ok_or_else(|| ClassifyError {
+                    message: "empty model response".into(),
+                    status: None,
+                })?;
 
-            serde_json::from_str::<Classification>(&content).map_err(|e| {
-                ClassifyError(format!("failed to parse classification JSON: {e}"))
+            serde_json::from_str::<Classification>(&content).map_err(|e| ClassifyError {
+                message: format!("failed to parse classification JSON: {e}"),
+                status: None,
             })
         })
     }
