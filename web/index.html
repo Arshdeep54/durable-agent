@@ -220,6 +220,358 @@ body {
   line-height: 1.6;
 }
 
+.workflows-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.workflows-toolbar .section-title {
+  margin: 0;
+}
+
+.btn {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  padding: 7px 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.btn:hover {
+  background: rgba(20, 20, 19, 0.03);
+  border-color: var(--border-strong);
+}
+
+.btn-primary {
+  background: var(--fg);
+  color: var(--bg-elevated);
+  border-color: var(--fg);
+}
+
+.btn-primary:hover {
+  background: #2a2a28;
+  border-color: #2a2a28;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn-ghost:hover {
+  background: rgba(20, 20, 19, 0.04);
+}
+
+.list-search {
+  margin-bottom: var(--space-4);
+}
+
+.list-search input {
+  width: 100%;
+  max-width: 360px;
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  outline: none;
+}
+
+.list-search input:focus {
+  border-color: var(--border-strong);
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.chip {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.chip:hover {
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+
+.chip.is-active {
+  color: var(--fg);
+  background: rgba(20, 20, 19, 0.06);
+  border-color: var(--border-strong);
+}
+
+.workflow-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.workflow-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-3) var(--space-5);
+  align-items: start;
+  padding: var(--space-4) 0;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  margin: 0 calc(-1 * var(--space-2));
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.workflow-row:hover {
+  background: rgba(20, 20, 19, 0.03);
+}
+
+.workflow-row:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+
+.workflow-row-main {
+  min-width: 0;
+}
+
+.workflow-id {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  margin: 0 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-subject {
+  font-size: 13px;
+  color: var(--fg-secondary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-row-meta {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.workflow-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0 0 4px;
+  white-space: nowrap;
+}
+
+.workflow-status .status-dot {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.workflow-status.is-pending,
+.workflow-status.is-running { color: var(--running); }
+.workflow-status.is-waiting { color: var(--warning); }
+.workflow-status.is-completed { color: var(--success); }
+.workflow-status.is-failed,
+.workflow-status.is-cancelled { color: var(--error); }
+
+.workflow-duration {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+
+.workflow-steps {
+  font-size: 12px;
+  color: var(--fg-secondary);
+  margin: 6px 0 0;
+}
+
+.empty-state {
+  padding: var(--space-6) 0;
+  text-align: center;
+  max-width: 320px;
+  margin: var(--space-5) auto 0;
+}
+
+.empty-state h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 var(--space-2);
+}
+
+.empty-state p {
+  font-size: 13px;
+  color: var(--fg-secondary);
+  margin: 0 0 var(--space-5);
+  line-height: 1.6;
+}
+
+.list-error {
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  max-width: 400px;
+}
+
+.list-error h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 var(--space-2);
+}
+
+.list-error p {
+  font-size: 13px;
+  color: var(--fg-secondary);
+  margin: 0 0 var(--space-4);
+}
+
+.detail-back {
+  margin-bottom: var(--space-4);
+}
+
+.detail-id {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-2);
+}
+
+.detail-placeholder-note {
+  font-size: 13px;
+  color: var(--fg-secondary);
+  margin: var(--space-4) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 19, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.modal-backdrop.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal {
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - var(--space-6));
+  overflow: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 16px 48px rgba(20, 20, 19, 0.12);
+  padding: var(--space-5);
+}
+
+.modal h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 var(--space-5);
+  letter-spacing: -0.02em;
+}
+
+.form-field {
+  margin-bottom: var(--space-4);
+}
+
+.form-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  margin-bottom: 6px;
+}
+
+.form-field input,
+.form-field textarea {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--fg);
+  outline: none;
+}
+
+.form-field textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.form-field input:focus,
+.form-field textarea:focus {
+  border-color: var(--border-strong);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.form-error {
+  font-size: 12px;
+  color: var(--error);
+  margin: 0 0 var(--space-3);
+}
+
 @media (max-width: 720px) {
   :root {
     --sidebar-w: 100%;
@@ -252,6 +604,18 @@ body {
 
   .header-search {
     max-width: none;
+  }
+
+  .workflow-row {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-row-meta {
+    text-align: left;
+  }
+
+  .workflow-status {
+    justify-content: flex-start;
   }
 }
 </style>
@@ -288,9 +652,39 @@ body {
 
     <main class="main" id="main">
       <section class="main-section is-active" id="section-workflows" aria-labelledby="title-workflows">
-        <h2 class="section-title" id="title-workflows">Workflows</h2>
-        <div class="placeholder-block">
-          <p class="placeholder-text">Workflow list and filters.</p>
+        <div id="workflows-list-view">
+          <div class="workflows-toolbar">
+            <h2 class="section-title" id="title-workflows">Workflows</h2>
+            <button type="button" class="btn btn-primary" id="btnNewWorkflow">+ New workflow</button>
+          </div>
+          <div class="list-search">
+            <input type="search" id="workflowSearch" placeholder="Search workflows…" aria-label="Search workflows">
+          </div>
+          <div class="filter-chips" role="toolbar" aria-label="Filter workflows">
+            <button type="button" class="chip is-active" data-filter="all">All</button>
+            <button type="button" class="chip" data-filter="running">Running</button>
+            <button type="button" class="chip" data-filter="waiting">Waiting</button>
+            <button type="button" class="chip" data-filter="failed">Failed</button>
+            <button type="button" class="chip" data-filter="completed">Completed</button>
+          </div>
+          <div id="workflowsListError" class="list-error" hidden>
+            <h3>Couldn't load workflows</h3>
+            <p id="workflowsListErrorMsg"></p>
+            <button type="button" class="btn" id="workflowsListRetry">Retry</button>
+          </div>
+          <ul class="workflow-list" id="workflowList" aria-live="polite"></ul>
+          <div class="empty-state" id="workflowsEmpty" hidden>
+            <h3>No workflows yet</h3>
+            <p>Create your first workflow to see durable execution in action.</p>
+            <button type="button" class="btn btn-primary" id="btnEmptyNewWorkflow">+ New workflow</button>
+          </div>
+        </div>
+        <div id="workflows-detail-view" hidden>
+          <button type="button" class="btn btn-ghost detail-back" id="btnBackToList">← Workflows</button>
+          <h2 class="detail-id" id="detailWorkflowId"></h2>
+          <p class="workflow-subject" id="detailWorkflowSubject"></p>
+          <p class="workflow-status" id="detailWorkflowStatus"></p>
+          <p class="detail-placeholder-note">Workflow detail view — execution graph and events arrive in the next release.</p>
         </div>
       </section>
 
@@ -311,9 +705,39 @@ body {
   </div>
 </div>
 
+<div class="modal-backdrop" id="newWorkflowModal" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="newWorkflowTitle">
+    <h2 id="newWorkflowTitle">New workflow</h2>
+    <p class="form-error" id="newWorkflowError" hidden></p>
+    <form id="newWorkflowForm">
+      <div class="form-field">
+        <label for="wfHandle">What should this workflow handle?</label>
+        <input type="text" id="wfHandle" name="handle" value="Customer support request" autocomplete="off">
+      </div>
+      <div class="form-field">
+        <label for="wfCustomer">Customer</label>
+        <input type="email" id="wfCustomer" name="customer_id" value="customer@example.com" autocomplete="email">
+      </div>
+      <div class="form-field">
+        <label for="wfSubject">Subject</label>
+        <input type="text" id="wfSubject" name="subject" value="Need help with my account" autocomplete="off">
+      </div>
+      <div class="form-field">
+        <label for="wfBody">Message</label>
+        <textarea id="wfBody" name="body">I can't access my account and need help resetting my password.</textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="btnCancelWorkflow">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="btnRunWorkflow">Run workflow →</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 (function () {
   var CONNECTION_INTERVAL_MS = 12000;
+  var WORKFLOWS_POLL_MS = 4000;
   var connectionEl = document.getElementById('connection');
   var connectionLabel = document.getElementById('connectionLabel');
   var navLinks = document.querySelectorAll('.nav-link[data-section]');
@@ -362,12 +786,497 @@ body {
 
   navLinks.forEach(function (link) {
     link.addEventListener('click', function () {
-      showSection(link.getAttribute('data-section'));
+      var section = link.getAttribute('data-section');
+      if (section === 'workflows') {
+        navigateTo('/workflows');
+      } else {
+        navigateTo('/' + section);
+      }
     });
+  });
+
+  var workflowsListView = document.getElementById('workflows-list-view');
+  var workflowsDetailView = document.getElementById('workflows-detail-view');
+  var workflowListEl = document.getElementById('workflowList');
+  var workflowsEmptyEl = document.getElementById('workflowsEmpty');
+  var workflowsListErrorEl = document.getElementById('workflowsListError');
+  var workflowsListErrorMsg = document.getElementById('workflowsListErrorMsg');
+  var workflowSearchEl = document.getElementById('workflowSearch');
+  var filterChips = document.querySelectorAll('.chip[data-filter]');
+  var btnNewWorkflow = document.getElementById('btnNewWorkflow');
+  var btnEmptyNewWorkflow = document.getElementById('btnEmptyNewWorkflow');
+  var btnBackToList = document.getElementById('btnBackToList');
+  var detailWorkflowId = document.getElementById('detailWorkflowId');
+  var detailWorkflowSubject = document.getElementById('detailWorkflowSubject');
+  var detailWorkflowStatus = document.getElementById('detailWorkflowStatus');
+  var newWorkflowModal = document.getElementById('newWorkflowModal');
+  var newWorkflowForm = document.getElementById('newWorkflowForm');
+  var newWorkflowError = document.getElementById('newWorkflowError');
+  var btnCancelWorkflow = document.getElementById('btnCancelWorkflow');
+  var workflowsListRetry = document.getElementById('workflowsListRetry');
+
+  var workflows = [];
+  var listFilter = 'all';
+  var listSearchQuery = '';
+  var workflowsPollTimer = null;
+  var detailPollTimer = null;
+  var listLoadedOnce = false;
+
+  function parseHashRoute() {
+    var raw = (location.hash || '#/workflows').replace(/^#/, '');
+    var parts = raw.split('/').filter(Boolean);
+    if (parts.length === 0) {
+      return { section: 'workflows', workflowId: null };
+    }
+    var section = parts[0];
+    if (section === 'workflows') {
+      return { section: 'workflows', workflowId: parts[1] ? decodeURIComponent(parts[1]) : null };
+    }
+    return { section: section, workflowId: null };
+  }
+
+  function navigateTo(path) {
+    location.hash = '#' + path;
+  }
+
+  function applyRoute() {
+    var route = parseHashRoute();
+    var sectionName = route.section;
+    if (!sections[sectionName]) {
+      sectionName = 'workflows';
+    }
+    showSection(sectionName);
+
+    if (sectionName === 'workflows') {
+      if (route.workflowId) {
+        workflowsListView.hidden = true;
+        workflowsDetailView.hidden = false;
+        loadWorkflowDetail(route.workflowId);
+        stopWorkflowsPoll();
+        startDetailPoll(route.workflowId);
+      } else {
+        workflowsListView.hidden = false;
+        workflowsDetailView.hidden = true;
+        stopDetailPoll();
+        startWorkflowsPoll();
+        renderWorkflowList();
+      }
+    } else {
+      stopWorkflowsPoll();
+      stopDetailPoll();
+    }
+  }
+
+  function statusLabel(wf) {
+    if (wf.status === 'waiting') {
+      if (wf.current_step_name) {
+        return 'Waiting · ' + wf.current_step_name;
+      }
+      return 'Waiting for approval';
+    }
+    if (wf.status === 'running' && wf.current_step_name) {
+      return wf.current_step_name;
+    }
+    if (wf.status === 'completed') {
+      return 'Completed';
+    }
+    if (wf.status === 'failed') {
+      return 'Failed';
+    }
+    if (wf.status === 'cancelled') {
+      return 'Cancelled';
+    }
+    if (wf.status === 'pending') {
+      return 'Pending';
+    }
+    return wf.status;
+  }
+
+  function formatDurationMs(ms) {
+    if (ms == null || ms < 0) {
+      return '—';
+    }
+    if (ms < 1000) {
+      return ms + 'ms';
+    }
+    var sec = Math.floor(ms / 1000);
+    if (sec < 60) {
+      return sec + 's';
+    }
+    var min = Math.floor(sec / 60);
+    if (min < 60) {
+      return min + 'm';
+    }
+    var hr = Math.floor(min / 60);
+    return hr + 'h';
+  }
+
+  function formatRelativeAgo(millis) {
+    if (millis == null) {
+      return '—';
+    }
+    var delta = Date.now() - millis;
+    if (delta < 0) {
+      delta = 0;
+    }
+    if (delta < 60000) {
+      return Math.max(1, Math.floor(delta / 1000)) + 's ago';
+    }
+    if (delta < 3600000) {
+      return Math.floor(delta / 60000) + 'm ago';
+    }
+    if (delta < 86400000) {
+      return Math.floor(delta / 3600000) + 'h ago';
+    }
+    return Math.floor(delta / 86400000) + 'd ago';
+  }
+
+  function durationDisplay(wf) {
+    if (wf.status === 'completed' || wf.status === 'failed' || wf.status === 'cancelled') {
+      return formatRelativeAgo(wf.last_event_at_millis);
+    }
+    return formatDurationMs(wf.duration_millis);
+  }
+
+  function matchesFilter(wf) {
+    var s = wf.status;
+    if (listFilter === 'all') {
+      return true;
+    }
+    if (listFilter === 'running') {
+      return s === 'running' || s === 'pending';
+    }
+    if (listFilter === 'waiting') {
+      return s === 'waiting';
+    }
+    if (listFilter === 'failed') {
+      return s === 'failed';
+    }
+    if (listFilter === 'completed') {
+      return s === 'completed';
+    }
+    return true;
+  }
+
+  function matchesSearch(wf) {
+    if (!listSearchQuery) {
+      return true;
+    }
+    var q = listSearchQuery.toLowerCase();
+    return (
+      wf.id.toLowerCase().indexOf(q) !== -1 ||
+      (wf.subject && wf.subject.toLowerCase().indexOf(q) !== -1) ||
+      (wf.customer_id && wf.customer_id.toLowerCase().indexOf(q) !== -1)
+    );
+  }
+
+  function filteredWorkflows() {
+    return workflows.filter(function (wf) {
+      return matchesFilter(wf) && matchesSearch(wf);
+    });
+  }
+
+  function renderWorkflowList() {
+    var items = filteredWorkflows();
+    workflowListEl.innerHTML = '';
+
+    if (!workflowsListErrorEl.hidden) {
+      return;
+    }
+
+    if (listLoadedOnce && workflows.length === 0) {
+      workflowsEmptyEl.hidden = false;
+      workflowListEl.hidden = true;
+      return;
+    }
+
+    if (workflowsListErrorEl.hidden && listLoadedOnce && workflows.length > 0 && items.length === 0) {
+      workflowsEmptyEl.hidden = true;
+      workflowListEl.hidden = false;
+      var li = document.createElement('li');
+      li.className = 'placeholder-text';
+      li.style.padding = 'var(--space-4) 0';
+      li.textContent = 'No workflows match this filter.';
+      workflowListEl.appendChild(li);
+      return;
+    }
+
+    workflowsEmptyEl.hidden = true;
+    workflowListEl.hidden = false;
+
+    items.forEach(function (wf) {
+      var li = document.createElement('li');
+      var row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'workflow-row';
+      row.setAttribute('data-workflow-id', wf.id);
+
+      var main = document.createElement('div');
+      main.className = 'workflow-row-main';
+      var idEl = document.createElement('p');
+      idEl.className = 'workflow-id';
+      idEl.textContent = wf.id;
+      var subj = document.createElement('p');
+      subj.className = 'workflow-subject';
+      subj.textContent = wf.subject || wf.customer_id;
+      main.appendChild(idEl);
+      main.appendChild(subj);
+
+      var meta = document.createElement('div');
+      meta.className = 'workflow-row-meta';
+      var status = document.createElement('p');
+      status.className = 'workflow-status is-' + wf.status;
+      var dot = document.createElement('span');
+      dot.className = 'status-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      dot.textContent = wf.status === 'completed' ? '✓' : '●';
+      status.appendChild(dot);
+      status.appendChild(document.createTextNode(statusLabel(wf)));
+      var dur = document.createElement('p');
+      dur.className = 'workflow-duration';
+      dur.textContent = durationDisplay(wf);
+      meta.appendChild(status);
+      meta.appendChild(dur);
+
+      row.appendChild(main);
+      row.appendChild(meta);
+
+      var steps = document.createElement('p');
+      steps.className = 'workflow-steps';
+      steps.textContent = wf.step_count + (wf.step_count === 1 ? ' step' : ' steps');
+      main.appendChild(steps);
+
+      row.addEventListener('click', function () {
+        navigateTo('/workflows/' + encodeURIComponent(wf.id));
+      });
+
+      li.appendChild(row);
+      workflowListEl.appendChild(li);
+    });
+  }
+
+  function setListError(message) {
+    workflowsListErrorEl.hidden = false;
+    workflowsListErrorMsg.textContent = message;
+    workflowsEmptyEl.hidden = true;
+    workflowListEl.hidden = true;
+  }
+
+  function clearListError() {
+    workflowsListErrorEl.hidden = true;
+  }
+
+  function fetchWorkflows() {
+    return fetch('/workflows')
+      .then(function (r) {
+        if (!r.ok) {
+          throw new Error('The API returned ' + r.status + '.');
+        }
+        return r.json();
+      })
+      .then(function (data) {
+        workflows = Array.isArray(data) ? data : [];
+        listLoadedOnce = true;
+        clearListError();
+        var route = parseHashRoute();
+        if (route.section === 'workflows' && !route.workflowId) {
+          renderWorkflowList();
+        }
+      })
+      .catch(function (err) {
+        listLoadedOnce = true;
+        setListError(err.message || 'Request failed.');
+      });
+  }
+
+  function startWorkflowsPoll() {
+    if (workflowsPollTimer) {
+      return;
+    }
+    fetchWorkflows();
+    workflowsPollTimer = setInterval(fetchWorkflows, WORKFLOWS_POLL_MS);
+  }
+
+  function stopWorkflowsPoll() {
+    if (workflowsPollTimer) {
+      clearInterval(workflowsPollTimer);
+      workflowsPollTimer = null;
+    }
+  }
+
+  function renderWorkflowDetail(wf) {
+    detailWorkflowId.textContent = wf.id;
+    detailWorkflowSubject.textContent = wf.subject || '';
+    detailWorkflowStatus.className = 'workflow-status is-' + wf.status;
+    var dot = wf.status === 'completed' ? '✓ ' : '● ';
+    detailWorkflowStatus.textContent = dot + statusLabel(wf);
+  }
+
+  function loadWorkflowDetail(id) {
+    detailWorkflowId.textContent = id;
+    detailWorkflowSubject.textContent = '';
+    detailWorkflowStatus.textContent = '';
+    detailWorkflowStatus.className = 'workflow-status';
+
+    fetch('/workflows/' + encodeURIComponent(id))
+      .then(function (r) {
+        if (!r.ok) {
+          throw new Error(String(r.status));
+        }
+        return r.json();
+      })
+      .then(function (wf) {
+        renderWorkflowDetail(wf);
+      })
+      .catch(function () {
+        detailWorkflowSubject.textContent = 'Could not load workflow summary.';
+      });
+  }
+
+  function startDetailPoll(id) {
+    stopDetailPoll();
+    detailPollTimer = setInterval(function () {
+      fetch('/workflows/' + encodeURIComponent(id))
+        .then(function (r) {
+          if (!r.ok) {
+            return null;
+          }
+          return r.json();
+        })
+        .then(function (wf) {
+          if (wf) {
+            renderWorkflowDetail(wf);
+          }
+        })
+        .catch(function () {});
+    }, WORKFLOWS_POLL_MS);
+  }
+
+  function stopDetailPoll() {
+    if (detailPollTimer) {
+      clearInterval(detailPollTimer);
+      detailPollTimer = null;
+    }
+  }
+
+  function openNewWorkflowModal() {
+    newWorkflowError.hidden = true;
+    newWorkflowModal.classList.add('is-open');
+    newWorkflowModal.setAttribute('aria-hidden', 'false');
+    document.getElementById('wfCustomer').focus();
+  }
+
+  function closeNewWorkflowModal() {
+    newWorkflowModal.classList.remove('is-open');
+    newWorkflowModal.setAttribute('aria-hidden', 'true');
+    newWorkflowError.hidden = true;
+  }
+
+  function generateWorkflowId() {
+    return 'wf-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  }
+
+  function submitNewWorkflow(ev) {
+    ev.preventDefault();
+    newWorkflowError.hidden = true;
+    var handle = document.getElementById('wfHandle').value.trim();
+    var customerId = document.getElementById('wfCustomer').value.trim();
+    var subject = document.getElementById('wfSubject').value.trim();
+    var body = document.getElementById('wfBody').value.trim();
+    var id = generateWorkflowId();
+    var fullBody = body;
+    if (handle) {
+      fullBody = handle + '\n\n' + body;
+    }
+    var ticket = {
+      id: id,
+      customer_id: customerId,
+      subject: subject,
+      body: fullBody
+    };
+    var runBtn = document.getElementById('btnRunWorkflow');
+    runBtn.disabled = true;
+
+    fetch('/workflows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ticket)
+    })
+      .then(function (r) {
+        if (r.status === 409) {
+          throw new Error('A workflow with this id already exists.');
+        }
+        if (!r.ok) {
+          throw new Error('Create failed (' + r.status + ').');
+        }
+        return fetch('/workflows/' + encodeURIComponent(id) + '/run', { method: 'POST' });
+      })
+      .then(function (r) {
+        if (r.status !== 202 && !r.ok) {
+          throw new Error('Run failed (' + r.status + ').');
+        }
+        closeNewWorkflowModal();
+        navigateTo('/workflows/' + encodeURIComponent(id));
+      })
+      .catch(function (err) {
+        newWorkflowError.hidden = false;
+        newWorkflowError.textContent = err.message || 'Something went wrong.';
+      })
+      .finally(function () {
+        runBtn.disabled = false;
+      });
+  }
+
+  filterChips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      listFilter = chip.getAttribute('data-filter');
+      filterChips.forEach(function (c) {
+        c.classList.toggle('is-active', c === chip);
+      });
+      renderWorkflowList();
+    });
+  });
+
+  workflowSearchEl.addEventListener('input', function () {
+    listSearchQuery = workflowSearchEl.value.trim();
+    renderWorkflowList();
+  });
+
+  btnNewWorkflow.addEventListener('click', openNewWorkflowModal);
+  btnEmptyNewWorkflow.addEventListener('click', openNewWorkflowModal);
+  btnCancelWorkflow.addEventListener('click', closeNewWorkflowModal);
+  newWorkflowModal.addEventListener('click', function (e) {
+    if (e.target === newWorkflowModal) {
+      closeNewWorkflowModal();
+    }
+  });
+  newWorkflowForm.addEventListener('submit', submitNewWorkflow);
+  btnBackToList.addEventListener('click', function () {
+    navigateTo('/workflows');
+  });
+  workflowsListRetry.addEventListener('click', fetchWorkflows);
+
+  window.addEventListener('hashchange', applyRoute);
+  window.addEventListener('focus', function () {
+    var route = parseHashRoute();
+    if (route.section === 'workflows' && !route.workflowId) {
+      fetchWorkflows();
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && newWorkflowModal.classList.contains('is-open')) {
+      closeNewWorkflowModal();
+    }
   });
 
   checkConnection();
   setInterval(checkConnection, CONNECTION_INTERVAL_MS);
+
+  if (!location.hash) {
+    location.hash = '#/workflows';
+  }
+  applyRoute();
 })();
 </script>
 </body>
