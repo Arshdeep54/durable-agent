@@ -22,6 +22,26 @@ where
     }
 }
 
+fn approval_resume_output(input: String) -> Result<String, NonRetryable> {
+    let trimmed = input.trim();
+    if trimmed.eq_ignore_ascii_case("rejected") {
+        return Err(NonRetryable("rejected".to_string()));
+    }
+    const PREFIX: &str = "rejected:";
+    if trimmed.len() >= PREFIX.len()
+        && trimmed[..PREFIX.len()].eq_ignore_ascii_case(PREFIX)
+    {
+        let reason = trimmed[PREFIX.len()..].trim();
+        let message = if reason.is_empty() {
+            "rejected".to_string()
+        } else {
+            reason.to_string()
+        };
+        return Err(NonRetryable(message));
+    }
+    Ok(input)
+}
+
 fn step_completed_output(events: &[Event], step_index: usize) -> Option<String> {
     events
         .iter()
@@ -76,7 +96,9 @@ pub fn build_step_bodies(
         let reader_store = Arc::clone(&reader_store_approval);
         Box::pin(async move {
             if let Some(input) = engine.resume_input(&ticket.id, 2) {
-                return Ok(input);
+                return approval_resume_output(input).map_err(|e| {
+                    Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+                });
             }
 
             let events = reader_store.load_events(&ticket.id)?;
@@ -154,7 +176,10 @@ mod tests {
     use crate::ticket_system::InMemoryTicketSystem;
     use crate::workflow_def::ticket_workflow;
 
-    use super::{build_step_bodies, http_adapter_step_error, is_non_retryable_status};
+    use super::{
+        approval_resume_output, build_step_bodies, http_adapter_step_error,
+        is_non_retryable_status,
+    };
 
     #[test]
     fn is_non_retryable_status_classifies_http_codes() {
@@ -204,6 +229,88 @@ mod tests {
         events
             .iter()
             .any(|e| matches!(e, Event::WorkflowCompleted { .. }))
+    }
+
+    fn workflow_failed(events: &[Event]) -> bool {
+        events
+            .iter()
+            .any(|e| matches!(e, Event::WorkflowFailed { .. }))
+    }
+
+    fn step_completed(events: &[Event], step_index: usize) -> bool {
+        events.iter().any(|e| {
+            matches!(
+                e,
+                Event::StepCompleted {
+                    step_index: si, ..
+                } if *si == step_index
+            )
+        })
+    }
+
+    #[test]
+    fn approval_resume_output_classifies_rejection_and_approval() {
+        assert!(approval_resume_output("rejected".into()).is_err());
+        assert!(approval_resume_output("REJECTED".into()).is_err());
+        let err = approval_resume_output("rejected:not needed".into()).unwrap_err();
+        assert_eq!(err.0, "not needed");
+        assert_eq!(
+            approval_resume_output("approved".into()).expect("approval"),
+            "approved"
+        );
+        assert_eq!(
+            approval_resume_output("garbage-token".into()).expect("approval"),
+            "garbage-token"
+        );
+    }
+
+    async fn workflow_waiting_fixture() -> (
+        String,
+        Arc<WorkflowEngine<SqliteStore>>,
+        Arc<SqliteStore>,
+        Ticket,
+        Arc<InMemoryTicketSystem>,
+    ) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
+        let unique = FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "durable-agent-steps-test-{}-{}.db",
+            std::process::id(),
+            unique
+        ));
+        let path_str = path.to_str().expect("temp db path utf8").to_string();
+
+        let store = SqliteStore::new(&path_str).expect("engine store");
+        let reader_store = Arc::new(SqliteStore::new(&path_str).expect("reader store"));
+        let queue = Queue::builder().start();
+        let engine = Arc::new(WorkflowEngine::new(
+            queue,
+            store,
+            "test-worker".to_string(),
+            Duration::from_secs(60),
+            Priority::High,
+        ));
+
+        let ticket = sample_ticket();
+        let ticket_system = Arc::new(InMemoryTicketSystem::new());
+
+        let bodies = build_step_bodies(
+            ticket.clone(),
+            Arc::new(MockClassifier),
+            Arc::new(MockApprovalSender),
+            Arc::new(MockCustomerMailer),
+            Arc::clone(&ticket_system) as Arc<dyn crate::ticket_system::TicketSystem>,
+            Arc::clone(&engine),
+            Arc::clone(&reader_store),
+        );
+
+        engine
+            .run(ticket_workflow(&ticket.id), bodies)
+            .await
+            .expect("run should pause at approval without error");
+
+        (path_str, engine, reader_store, ticket, ticket_system)
     }
 
     #[tokio::test]
@@ -266,5 +373,96 @@ mod tests {
         assert!(ticket_system_assert.is_resolved(&ticket.id));
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn ticket_workflow_rejection_fails_without_later_steps() {
+        let (path_str, engine, reader_store, ticket, ticket_system) =
+            workflow_waiting_fixture().await;
+
+        let result = engine
+            .resume(&ticket.id, 2, "rejected:not needed".to_string())
+            .await;
+        assert!(matches!(result, Err(agentq::EngineError::WorkflowFailed { .. })));
+
+        let events = reader_store
+            .load_events(&ticket.id)
+            .expect("load events after rejection");
+        assert!(workflow_failed(&events));
+        assert!(!workflow_completed(&events));
+        assert!(!step_completed(&events, 3));
+        assert!(!step_completed(&events, 4));
+        assert!(!step_completed(&events, 5));
+        assert!(!ticket_system.is_resolved(&ticket.id));
+
+        let _ = std::fs::remove_file(path_str);
+    }
+
+    #[tokio::test]
+    async fn ticket_workflow_unrecognized_resume_input_treated_as_approval() {
+        let (path_str, engine, reader_store, ticket, ticket_system) =
+            workflow_waiting_fixture().await;
+
+        engine
+            .resume(&ticket.id, 2, "garbage-token".to_string())
+            .await
+            .expect("resume should complete workflow");
+
+        let events = reader_store
+            .load_events(&ticket.id)
+            .expect("load events after resume");
+        assert!(workflow_completed(&events));
+        assert!(ticket_system.is_resolved(&ticket.id));
+        assert!(step_completed(&events, 3));
+
+        let _ = std::fs::remove_file(path_str);
+    }
+
+    #[tokio::test]
+    async fn ticket_workflow_second_resume_after_approval_errors() {
+        let (path_str, engine, reader_store, ticket, ticket_system) =
+            workflow_waiting_fixture().await;
+
+        engine
+            .resume(&ticket.id, 2, "approved".to_string())
+            .await
+            .expect("first resume should complete workflow");
+        assert!(workflow_completed(
+            &reader_store.load_events(&ticket.id).expect("events")
+        ));
+
+        let second = engine
+            .resume(&ticket.id, 2, "approved".to_string())
+            .await;
+        assert!(matches!(
+            second,
+            Err(agentq::EngineError::Store(agentq::StoreError::Backend(_)))
+        ));
+        assert!(ticket_system.is_resolved(&ticket.id));
+
+        let _ = std::fs::remove_file(path_str);
+    }
+
+    #[tokio::test]
+    async fn ticket_workflow_resume_after_completion_errors() {
+        let (path_str, engine, reader_store, ticket, _) = workflow_waiting_fixture().await;
+
+        engine
+            .resume(&ticket.id, 2, "approved".to_string())
+            .await
+            .expect("resume should complete workflow");
+
+        let after_complete = engine
+            .resume(&ticket.id, 2, "rejected:nope".to_string())
+            .await;
+        assert!(matches!(
+            after_complete,
+            Err(agentq::EngineError::Store(agentq::StoreError::Backend(_)))
+        ));
+        assert!(workflow_completed(
+            &reader_store.load_events(&ticket.id).expect("events")
+        ));
+
+        let _ = std::fs::remove_file(path_str);
     }
 }

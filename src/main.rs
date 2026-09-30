@@ -280,4 +280,145 @@ mod tests {
         assert_eq!(completed["id"], "wf-1");
         assert!(completed["waiting_step"].is_null());
     }
+
+    #[tokio::test]
+    async fn workflow_reject_via_http_fails_workflow() {
+        let app = test_app("reject-http");
+
+        let ticket_json = r#"{
+            "id": "wf-reject",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }"#;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-reject/run")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let waiting = poll_status(&app, "wf-reject", "waiting", 200).await;
+        assert_eq!(waiting["waiting_step"], 2);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-reject/reject")
+                    .body(Body::from("not needed"))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let failed = poll_status(&app, "wf-reject", "failed", 200).await;
+        assert_eq!(failed["id"], "wf-reject");
+        assert!(failed["waiting_step"].is_null());
+    }
+
+    #[tokio::test]
+    async fn workflow_second_approve_after_completion_returns_not_found() {
+        let app = test_app("second-approve");
+
+        let ticket_json = r#"{
+            "id": "wf-twice",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }"#;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-twice/run")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        poll_status(&app, "wf-twice", "waiting", 200).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-twice/approve")
+                    .body(Body::from("approved reply text"))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        poll_status(&app, "wf-twice", "completed", 200).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-twice/approve")
+                    .body(Body::from("again"))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-twice/reject")
+                    .body(Body::from("too late"))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }

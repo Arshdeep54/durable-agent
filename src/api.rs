@@ -205,6 +205,7 @@ pub fn router() -> Router<ApiState> {
         .route("/workflows/{id}/run", post(run_workflow))
         .route("/workflows/{id}/events", get(workflow_events))
         .route("/workflows/{id}/approve", post(approve_workflow))
+        .route("/workflows/{id}/reject", post(reject_workflow))
 }
 
 async fn create_workflow(
@@ -298,12 +299,8 @@ async fn workflow_events(
     Ok(Json(events))
 }
 
-async fn approve_workflow(
-    State(state): State<ApiState>,
-    Path(id): Path<String>,
-    body: Bytes,
-) -> Result<StatusCode, StatusCode> {
-    let events = state.reader_store.load_events(&id).map_err(|e| {
+fn waiting_step_index(reader_store: &SqliteStore, id: &str) -> Result<usize, StatusCode> {
+    let events = reader_store.load_events(id).map_err(|e| {
         eprintln!("load_events failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -311,17 +308,56 @@ async fn approve_workflow(
     if status != "waiting" {
         return Err(StatusCode::NOT_FOUND);
     }
-    let step_index = waiting_step.expect("waiting status implies waiting_step");
+    Ok(waiting_step.expect("waiting status implies waiting_step"))
+}
 
-    let input = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
-
-    let engine = Arc::clone(&state.engine);
+fn spawn_resume(
+    engine: Arc<WorkflowEngine<SqliteStore>>,
+    id: String,
+    step_index: usize,
+    input: String,
+) {
     tokio::spawn(async move {
         if let Err(e) = engine.resume(&id, step_index, input).await {
             eprintln!("workflow resume failed: {e}");
         }
     });
+}
 
+async fn approve_workflow(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Result<StatusCode, StatusCode> {
+    let step_index = waiting_step_index(state.reader_store.as_ref(), &id)?;
+    let input = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
+    spawn_resume(
+        Arc::clone(&state.engine),
+        id,
+        step_index,
+        input,
+    );
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn reject_workflow(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Result<StatusCode, StatusCode> {
+    let step_index = waiting_step_index(state.reader_store.as_ref(), &id)?;
+    let reason = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let input = if reason.is_empty() {
+        "rejected".to_string()
+    } else {
+        format!("rejected:{reason}")
+    };
+    spawn_resume(
+        Arc::clone(&state.engine),
+        id,
+        step_index,
+        input,
+    );
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -331,11 +367,12 @@ mod tests {
     use crate::domain::Ticket;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    fn recovery_test_db_path() -> String {
+    fn recovery_test_db_path(label: &str) -> String {
         std::env::temp_dir()
             .join(format!(
-                "durable-agent-recover-test-{}.db",
-                std::process::id()
+                "durable-agent-recover-test-{}-{}.db",
+                std::process::id(),
+                label
             ))
             .to_str()
             .expect("temp db path utf8")
@@ -402,11 +439,45 @@ mod tests {
             .any(|e| matches!(e, Event::WorkflowCompleted { .. }))
     }
 
+    fn workflow_failed(events: &[Event]) -> bool {
+        events
+            .iter()
+            .any(|e| matches!(e, Event::WorkflowFailed { .. }))
+    }
+
+    fn seed_waiting_at_approval(path: &str, workflow_id: &str, classification_json: &str) {
+        let store = SqliteStore::new(path).expect("seed store");
+        store
+            .append_event(&Event::WorkflowStarted {
+                workflow_id: workflow_id.to_string(),
+            })
+            .expect("WorkflowStarted");
+        for (step_index, output) in [
+            (0usize, workflow_id.to_string()),
+            (1, classification_json.to_string()),
+        ] {
+            store
+                .append_event(&Event::StepCompleted {
+                    workflow_id: workflow_id.to_string(),
+                    step_index,
+                    output,
+                })
+                .expect("StepCompleted");
+        }
+        store
+            .append_event(&Event::StepWaiting {
+                workflow_id: workflow_id.to_string(),
+                step_index: 2,
+                reason: "awaiting human approval".into(),
+            })
+            .expect("StepWaiting");
+    }
+
     #[tokio::test]
     async fn recover_pending_workflows_after_simulated_crash() {
         use crate::classifier::{Classifier, MockClassifier};
 
-        let path = recovery_test_db_path();
+        let path = recovery_test_db_path("crash-complete");
         let _ = std::fs::remove_file(&path);
 
         let workflow_id = "wf-recover-startup";
@@ -446,6 +517,64 @@ mod tests {
         let events = reader.load_events(workflow_id).expect("final events");
         panic!(
             "workflow did not reach WorkflowCompleted after recovery; last events: {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn recover_pending_workflows_after_restart_then_reject() {
+        use crate::classifier::{Classifier, MockClassifier};
+
+        let path = recovery_test_db_path("restart-reject");
+        let _ = std::fs::remove_file(&path);
+
+        let workflow_id = "wf-recover-reject";
+        let ticket = sample_ticket(workflow_id);
+        let classification = MockClassifier
+            .classify(&ticket)
+            .await
+            .expect("mock classify");
+        let classification_json =
+            serde_json::to_string(&classification).expect("classification json");
+
+        {
+            let registry = WorkflowRegistry::new(&path).expect("registry");
+            registry.insert(&ticket).expect("insert ticket");
+            seed_waiting_at_approval(&path, workflow_id, &classification_json);
+        }
+
+        let state = ApiState::new(&path);
+        state
+            .recover_pending_workflows()
+            .await
+            .expect("recover_pending_workflows");
+
+        let step_index =
+            waiting_step_index(state.reader_store.as_ref(), workflow_id).expect("waiting step");
+        assert_eq!(step_index, 2);
+
+        spawn_resume(
+            Arc::clone(&state.engine),
+            workflow_id.to_string(),
+            step_index,
+            "rejected:post-restart".to_string(),
+        );
+
+        let reader = SqliteStore::new(&path).expect("poll store");
+        for _ in 0..200 {
+            let events = reader
+                .load_events(workflow_id)
+                .expect("load_events while polling");
+            if workflow_failed(&events) {
+                assert!(!workflow_completed(&events));
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+
+        let events = reader.load_events(workflow_id).expect("final events");
+        panic!(
+            "workflow did not reach WorkflowFailed after recovery rejection; last events: {events:?}"
         );
     }
 
