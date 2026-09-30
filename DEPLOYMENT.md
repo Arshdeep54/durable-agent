@@ -21,20 +21,26 @@ struct MockClassifier; // canned responses, used in tests and API-key-less demo 
 ```
 EC2 instance (single small box, e.g. t4g.micro)
 ├── durable-agent binary        — engine + workflow defs + axum API, one process
-├── SQLite file (agentq_store.db) on the instance's EBS volume
+│     → also serves the static UI (web/index.html) at "/" from the same
+│       process; no separate frontend deploy is required to run the demo.
+├── SQLite file (durable-agent.db) on the instance's EBS volume
 │     → durable state; survives reboot, crash, SIGKILL
 ├── systemd unit: durable-agent.service, Restart=on-failure
-│     → the "Kill Worker" dev control just SIGKILLs this process.
-│       systemd restarts it; recovery.rs finds the expired lease on
-│       boot and re-admits the interrupted step. This is the real
-│       production crash path, not a simulated one.
+│     → built with the `dev-tools` feature and `DURABLE_AGENT_ALLOW_DEV_KILL=1`,
+│       the dev-kill endpoint SIGKILLs this process. systemd restarts it;
+│       recovery.rs finds the expired lease on boot and re-admits the
+│       interrupted step. This is the real production crash path, not a
+│       simulated one. Leave `dev-tools` off (default) for a real deploy.
 └── cloudflared (Cloudflare Tunnel) → api.<domain>
       → no inbound port open except SSH; TLS handled by Cloudflare
 
-Cloudflare Pages
+Cloudflare Pages (optional split — not required)
 └── static frontend (the console UI) → app.<domain>
       Git-connected repo: push to main, Pages builds and deploys itself.
       Calls api.<domain> over fetch; CORS allowlists app.<domain>.
+      Not implemented today: the durable-agent binary already serves
+      web/index.html itself at "/". This split is only worth doing if the
+      UI outgrows a single static file served by the backend.
 ```
 
 ### Why this shape
@@ -51,8 +57,11 @@ Cloudflare Pages
 - **Secrets via `systemd EnvironmentFile=`**, not a dotenv crate — the OS
   already solves "load key=value pairs into a process's environment
   before it starts," so nothing extra is pulled into `Cargo.toml` for it.
-  `/etc/durable-agent/.env` (root-owned, `600`) holds `OPENAI_API_KEY` and
-  `AGENTMAIL_API_KEY`.
+  `/etc/durable-agent/.env` (root-owned, `600`) holds `OPENAI_API_KEY`,
+  `AGENTMAIL_API_KEY`, `AGENTMAIL_FROM_ADDRESS`, `APPROVER_EMAIL`,
+  `AGENTMAIL_WEBHOOK_SECRET`, and `RESPAN_API_KEY` — see the README for what
+  each one does and what happens if it's left unset. All are optional; the
+  app runs on mocks with none of them set.
 
 ## Deploy flow
 
@@ -68,8 +77,11 @@ ssh ec2 'sudo systemctl restart durable-agent'
 ## Open items (need a decision before this is buildable)
 
 - Domain name to point Cloudflare at.
-- AgentMail: confirmed to wire in from the start (not deferred behind a
-  mock) — need the AgentMail API key and account set up before `RequestApproval`
-  can be implemented for real. The adapter still sits behind the same
-  generic trait as any other integration, so a mock impl stays available
-  for tests even though it isn't the demo's primary path.
+- EC2/systemd/Cloudflare Tunnel setup itself — none of this has been
+  provisioned; today the app only runs locally via `cargo run`.
+
+AgentMail is no longer an open item: `AgentMailSender` is implemented
+against the real API, gated behind `AGENTMAIL_API_KEY`/
+`AGENTMAIL_FROM_ADDRESS`/`APPROVER_EMAIL`, with `MockApprovalSender`/
+`MockCustomerMailer` as the fallback when they're unset (used by tests and
+by the credential-free local demo).
