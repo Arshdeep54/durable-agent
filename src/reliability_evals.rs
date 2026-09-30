@@ -53,15 +53,19 @@ fn eval_trace_sink() -> Arc<dyn TraceSink> {
 }
 
 fn record_eval_pass(sink: &Arc<dyn TraceSink>, scenario: &str) {
+    let metadata = serde_json::json!({
+        "scenario": scenario,
+        "result": "pass",
+    });
     sink.record_batch(vec![TraceSpan {
         trace_id: format!("eval-{scenario}"),
         span_id: format!("eval-{scenario}-pass"),
         parent_span_id: None,
         path: format!("eval/{scenario}"),
-        metadata: serde_json::json!({
-            "scenario": scenario,
-            "result": "pass",
-        }),
+        name: format!("eval: {scenario}"),
+        log_type: "task",
+        output: metadata.to_string(),
+        metadata,
     }]);
 }
 
