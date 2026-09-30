@@ -2,6 +2,7 @@ mod api;
 mod approval;
 mod classifier;
 mod domain;
+mod registry;
 mod ticket_system;
 
 use api::ApiState;
