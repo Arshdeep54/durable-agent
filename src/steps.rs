@@ -3,6 +3,7 @@ use std::sync::Arc;
 use agentq::{DurableStore, Event, NonRetryable, StepFunc, WaitForInput, WorkflowEngine};
 
 use crate::approval::{ApprovalSender, CustomerMailer};
+use crate::approval_correlations::ApprovalCorrelations;
 use crate::classifier::Classifier;
 use crate::domain::{Classification, Ticket};
 use crate::ticket_system::TicketSystem;
@@ -11,7 +12,10 @@ fn is_non_retryable_status(status: Option<u16>) -> bool {
     matches!(status, Some(code) if (400..500).contains(&code) && code != 429)
 }
 
-fn http_adapter_step_error<E>(err: E, status: Option<u16>) -> Box<dyn std::error::Error + Send + Sync>
+fn http_adapter_step_error<E>(
+    err: E,
+    status: Option<u16>,
+) -> Box<dyn std::error::Error + Send + Sync>
 where
     E: std::error::Error + Send + Sync + 'static,
 {
@@ -28,9 +32,7 @@ fn approval_resume_output(input: String) -> Result<String, NonRetryable> {
         return Err(NonRetryable("rejected".to_string()));
     }
     const PREFIX: &str = "rejected:";
-    if trimmed.len() >= PREFIX.len()
-        && trimmed[..PREFIX.len()].eq_ignore_ascii_case(PREFIX)
-    {
+    if trimmed.len() >= PREFIX.len() && trimmed[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
         let reason = trimmed[PREFIX.len()..].trim();
         let message = if reason.is_empty() {
             "rejected".to_string()
@@ -43,19 +45,17 @@ fn approval_resume_output(input: String) -> Result<String, NonRetryable> {
 }
 
 fn step_completed_output(events: &[Event], step_index: usize) -> Option<String> {
-    events
-        .iter()
-        .rev()
-        .find_map(|event| match event {
-            Event::StepCompleted {
-                step_index: si,
-                output,
-                ..
-            } if *si == step_index => Some(output.clone()),
-            _ => None,
-        })
+    events.iter().rev().find_map(|event| match event {
+        Event::StepCompleted {
+            step_index: si,
+            output,
+            ..
+        } if *si == step_index => Some(output.clone()),
+        _ => None,
+    })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_step_bodies(
     ticket: Ticket,
     classifier: Arc<dyn Classifier>,
@@ -64,6 +64,7 @@ pub fn build_step_bodies(
     ticket_system: Arc<dyn TicketSystem>,
     engine: Arc<WorkflowEngine<agentq::SqliteStore>>,
     reader_store: Arc<agentq::SqliteStore>,
+    correlations: Arc<ApprovalCorrelations>,
 ) -> Vec<StepFunc> {
     let ticket_ingest = ticket.clone();
     let ingest: StepFunc = Box::new(move || {
@@ -89,31 +90,39 @@ pub fn build_step_bodies(
     let approval_sender_approval = Arc::clone(&approval_sender);
     let engine_approval = Arc::clone(&engine);
     let reader_store_approval = Arc::clone(&reader_store);
+    let correlations_approval = Arc::clone(&correlations);
     let request_approval: StepFunc = Box::new(move || {
         let ticket = ticket_approval.clone();
         let approval_sender = Arc::clone(&approval_sender_approval);
         let engine = Arc::clone(&engine_approval);
         let reader_store = Arc::clone(&reader_store_approval);
+        let correlations = Arc::clone(&correlations_approval);
         Box::pin(async move {
             if let Some(input) = engine.resume_input(&ticket.id, 2) {
-                return approval_resume_output(input).map_err(|e| {
-                    Box::new(e) as Box<dyn std::error::Error + Send + Sync>
-                });
+                return approval_resume_output(input)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
             }
 
             let events = reader_store.load_events(&ticket.id)?;
-            let classification_json = step_completed_output(&events, 1)
-                .ok_or("classification output missing")?;
+            let classification_json =
+                step_completed_output(&events, 1).ok_or("classification output missing")?;
             let classification: Classification = serde_json::from_str(&classification_json)?;
-            approval_sender
+            let correlation_key = approval_sender
                 .request_approval(&ticket, &classification.draft_reply)
                 .await
                 .map_err(|e| {
                     let status = e.status;
                     http_adapter_step_error(e, status)
                 })?;
-            Err(Box::new(WaitForInput("awaiting human approval".to_string()))
-                as Box<dyn std::error::Error + Send + Sync>)
+            if let Some(key) = correlation_key {
+                correlations
+                    .insert(&key, &ticket.id, 2)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+            }
+            Err(
+                Box::new(WaitForInput("awaiting human approval".to_string()))
+                    as Box<dyn std::error::Error + Send + Sync>,
+            )
         })
     });
 
@@ -126,8 +135,8 @@ pub fn build_step_bodies(
         let reader_store = Arc::clone(&reader_store_send);
         Box::pin(async move {
             let events = reader_store.load_events(&ticket.id)?;
-            let approved_reply = step_completed_output(&events, 2)
-                .ok_or("approval output missing")?;
+            let approved_reply =
+                step_completed_output(&events, 2).ok_or("approval output missing")?;
             let subject = format!("Re: {}", ticket.subject);
             mailer
                 .send_reply(&ticket.customer_id, &subject, &approved_reply)
@@ -171,14 +180,14 @@ mod tests {
     use agentq::{DurableStore, Event, NonRetryable, Priority, Queue, SqliteStore, WorkflowEngine};
 
     use crate::approval::{MockApprovalSender, MockCustomerMailer};
+    use crate::approval_correlations::ApprovalCorrelations;
     use crate::classifier::MockClassifier;
     use crate::domain::Ticket;
     use crate::ticket_system::InMemoryTicketSystem;
     use crate::workflow_def::ticket_workflow;
 
     use super::{
-        approval_resume_output, build_step_bodies, http_adapter_step_error,
-        is_non_retryable_status,
+        approval_resume_output, build_step_bodies, http_adapter_step_error, is_non_retryable_status,
     };
 
     #[test]
@@ -205,7 +214,8 @@ mod tests {
 
     #[test]
     fn http_adapter_step_error_wraps_other_client_errors() {
-        let retryable = http_adapter_step_error(SampleAdapterError("rate limited".into()), Some(429));
+        let retryable =
+            http_adapter_step_error(SampleAdapterError("rate limited".into()), Some(429));
         assert!(retryable.downcast_ref::<NonRetryable>().is_none());
 
         let transient = http_adapter_step_error(SampleAdapterError("offline".into()), None);
@@ -294,6 +304,8 @@ mod tests {
 
         let ticket = sample_ticket();
         let ticket_system = Arc::new(InMemoryTicketSystem::new());
+        let correlations =
+            Arc::new(ApprovalCorrelations::new(&path_str).expect("correlations store"));
 
         let bodies = build_step_bodies(
             ticket.clone(),
@@ -303,6 +315,7 @@ mod tests {
             Arc::clone(&ticket_system) as Arc<dyn crate::ticket_system::TicketSystem>,
             Arc::clone(&engine),
             Arc::clone(&reader_store),
+            correlations,
         );
 
         engine
@@ -335,6 +348,8 @@ mod tests {
         let ticket = sample_ticket();
         let ticket_system = Arc::new(InMemoryTicketSystem::new());
         let ticket_system_assert = Arc::clone(&ticket_system);
+        let correlations =
+            Arc::new(ApprovalCorrelations::new(path_str).expect("correlations store"));
 
         let bodies = build_step_bodies(
             ticket.clone(),
@@ -344,6 +359,7 @@ mod tests {
             ticket_system,
             Arc::clone(&engine),
             Arc::clone(&reader_store),
+            correlations,
         );
 
         engine
@@ -383,7 +399,10 @@ mod tests {
         let result = engine
             .resume(&ticket.id, 2, "rejected:not needed".to_string())
             .await;
-        assert!(matches!(result, Err(agentq::EngineError::WorkflowFailed { .. })));
+        assert!(matches!(
+            result,
+            Err(agentq::EngineError::WorkflowFailed { .. })
+        ));
 
         let events = reader_store
             .load_events(&ticket.id)
@@ -431,9 +450,7 @@ mod tests {
             &reader_store.load_events(&ticket.id).expect("events")
         ));
 
-        let second = engine
-            .resume(&ticket.id, 2, "approved".to_string())
-            .await;
+        let second = engine.resume(&ticket.id, 2, "approved".to_string()).await;
         assert!(matches!(
             second,
             Err(agentq::EngineError::Store(agentq::StoreError::Backend(_)))

@@ -16,18 +16,22 @@ use axum::{
 use crate::approval::{
     AgentMailSender, ApprovalSender, CustomerMailer, MockApprovalSender, MockCustomerMailer,
 };
+use crate::approval_correlations::ApprovalCorrelations;
 use crate::classifier::{Classifier, MockClassifier, OpenAiClassifier};
 use crate::domain::Ticket;
 use crate::registry::WorkflowRegistry;
 use crate::steps::build_step_bodies;
 use crate::ticket_system::{InMemoryTicketSystem, TicketSystem};
+use crate::webhook::agentmail_webhook;
 use crate::workflow_def::ticket_workflow;
 
 #[derive(Clone)]
 pub struct ApiState {
-    engine: Arc<WorkflowEngine<SqliteStore>>,
+    pub engine: Arc<WorkflowEngine<SqliteStore>>,
     reader_store: Arc<SqliteStore>,
     registry: Arc<WorkflowRegistry>,
+    pub correlations: Arc<ApprovalCorrelations>,
+    pub(crate) webhook_secret: Option<String>,
     classifier: Arc<dyn Classifier>,
     approval_sender: Arc<dyn ApprovalSender>,
     mailer: Arc<dyn CustomerMailer>,
@@ -36,6 +40,18 @@ pub struct ApiState {
 
 impl ApiState {
     pub fn new(db_path: &str) -> Self {
+        let webhook_secret = std::env::var("AGENTMAIL_WEBHOOK_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty());
+        Self::build(db_path, webhook_secret)
+    }
+
+    #[cfg(test)]
+    pub fn new_with_webhook_secret(db_path: &str, webhook_secret: &str) -> Self {
+        Self::build(db_path, Some(webhook_secret.to_string()))
+    }
+
+    fn build(db_path: &str, webhook_secret: Option<String>) -> Self {
         let engine_store = SqliteStore::new(db_path).expect("engine sqlite store");
         let reader_store = Arc::new(SqliteStore::new(db_path).expect("reader sqlite store"));
         let queue = Queue::builder().start();
@@ -47,6 +63,8 @@ impl ApiState {
             Priority::Medium,
         ));
         let registry = Arc::new(WorkflowRegistry::new(db_path).expect("workflow registry"));
+        let correlations =
+            Arc::new(ApprovalCorrelations::new(db_path).expect("approval correlations"));
 
         let classifier: Arc<dyn Classifier> = if std::env::var("OPENAI_API_KEY").is_ok() {
             Arc::new(OpenAiClassifier::new())
@@ -81,6 +99,8 @@ impl ApiState {
             engine,
             reader_store,
             registry,
+            correlations,
+            webhook_secret,
             classifier,
             approval_sender,
             mailer,
@@ -129,6 +149,7 @@ impl ApiState {
                 Arc::clone(&self.ticket_system),
                 Arc::clone(&self.engine),
                 Arc::clone(&self.reader_store),
+                Arc::clone(&self.correlations),
             );
 
             if let Err(e) = self.engine.register_workflow(workflow, bodies) {
@@ -208,6 +229,7 @@ pub fn router() -> Router<ApiState> {
         .route("/workflows/{id}/approve", post(approve_workflow))
         .route("/workflows/{id}/reject", post(reject_workflow))
         .route("/workflows/{id}/cancel", post(cancel_workflow))
+        .route("/webhooks/agentmail", post(agentmail_webhook))
 }
 
 async fn create_workflow(
@@ -276,6 +298,7 @@ async fn run_workflow(
         Arc::clone(&state.ticket_system),
         Arc::clone(&state.engine),
         Arc::clone(&state.reader_store),
+        Arc::clone(&state.correlations),
     );
 
     let engine = Arc::clone(&state.engine);

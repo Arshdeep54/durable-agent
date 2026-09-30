@@ -47,12 +47,18 @@ impl CustomerMailer for MockCustomerMailer {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct SentMessage {
+    pub message_id: String,
+    pub thread_id: String,
+}
+
 pub trait ApprovalSender: Send + Sync {
     fn request_approval(
         &self,
         ticket: &Ticket,
         draft_reply: &str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ApprovalError>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Option<String>, ApprovalError>> + Send>>;
 }
 
 #[derive(Debug, Default)]
@@ -63,12 +69,12 @@ impl ApprovalSender for MockApprovalSender {
         &self,
         ticket: &Ticket,
         draft_reply: &str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ApprovalError>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Option<String>, ApprovalError>> + Send>> {
         let id = ticket.id.clone();
         let draft = draft_reply.to_string();
         Box::pin(async move {
             println!("approval request for ticket {id}: {draft}");
-            Ok(())
+            Ok(None)
         })
     }
 }
@@ -91,11 +97,14 @@ impl AgentMailSender {
         }
     }
 
-    pub async fn send(&self, to: &str, subject: &str, text: &str) -> Result<(), ApprovalError> {
+    pub async fn send(
+        &self,
+        to: &str,
+        subject: &str,
+        text: &str,
+    ) -> Result<SentMessage, ApprovalError> {
         let inbox_id = self.from_address.replace('@', "%40");
-        let url = format!(
-            "https://api.agentmail.to/v0/inboxes/{inbox_id}/messages/send"
-        );
+        let url = format!("https://api.agentmail.to/v0/inboxes/{inbox_id}/messages/send");
 
         let response = self
             .client
@@ -115,12 +124,17 @@ impl AgentMailSender {
 
         let status = response.status();
         if status.is_success() {
-            Ok(())
+            let body = response.text().await.map_err(|e| ApprovalError {
+                message: e.to_string(),
+                status: None,
+            })?;
+            let sent: SentMessage = serde_json::from_str(&body).map_err(|e| ApprovalError {
+                message: format!("agentmail send response parse failed: {e}: {body}"),
+                status: None,
+            })?;
+            Ok(sent)
         } else {
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| String::new());
+            let body = response.text().await.unwrap_or_else(|_| String::new());
             Err(ApprovalError {
                 message: format!("agentmail send failed with {status}: {body}"),
                 status: Some(status.as_u16()),
@@ -140,7 +154,7 @@ impl CustomerMailer for AgentMailSender {
         let to = to.to_string();
         let subject = subject.to_string();
         let text = text.to_string();
-        Box::pin(async move { this.send(&to, &subject, &text).await })
+        Box::pin(async move { this.send(&to, &subject, &text).await.map(|_| ()) })
     }
 }
 
@@ -149,7 +163,7 @@ impl ApprovalSender for AgentMailSender {
         &self,
         ticket: &Ticket,
         draft_reply: &str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ApprovalError>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Option<String>, ApprovalError>> + Send>> {
         let ticket_id = ticket.id.clone();
         let ticket_subject = ticket.subject.clone();
         let draft = draft_reply.to_string();
@@ -158,10 +172,9 @@ impl ApprovalSender for AgentMailSender {
 
         Box::pin(async move {
             let subject = format!("Approval needed: ticket {ticket_id}");
-            let text = format!(
-                "Subject: {ticket_subject}\n\nDraft reply:\n{draft}"
-            );
-            sender.send(&to_address, &subject, &text).await
+            let text = format!("Subject: {ticket_subject}\n\nDraft reply:\n{draft}");
+            let sent = sender.send(&to_address, &subject, &text).await?;
+            Ok(Some(sent.thread_id))
         })
     }
 }
