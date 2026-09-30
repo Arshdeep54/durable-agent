@@ -124,6 +124,23 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "dev-tools"))]
+    #[tokio::test]
+    async fn dev_kill_route_absent_without_dev_tools_feature() {
+        let response = test_app("dev-kill-absent")
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/dev/kill")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
     #[tokio::test]
     async fn health_returns_ok() {
         let response = test_app("health")

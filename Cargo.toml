@@ -3,7 +3,11 @@ name = "durable-agent"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+dev-tools = ["dep:libc"]
+
 [dependencies]
+libc = { version = "0.2", optional = true }
 agentq = { path = "../agentq", features = ["sqlite", "serde"] }
 async-openai = { version = "0.42.1", features = ["chat-completion"] }
 axum = "0.8.9"

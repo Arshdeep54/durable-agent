@@ -457,6 +457,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
 
   killBtn.addEventListener('click', function(){
     if(killBtn.disabled) return;
+    fetch('/dev/kill', { method: 'POST' }).catch(function(){});
     showRecoveryBanners();
   });
 

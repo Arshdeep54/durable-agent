@@ -220,8 +220,29 @@ fn is_unique_violation(err: &rusqlite::Error) -> bool {
     )
 }
 
+#[cfg(feature = "dev-tools")]
+pub(crate) fn dev_kill_allowed() -> bool {
+    matches!(
+        std::env::var("DURABLE_AGENT_ALLOW_DEV_KILL"),
+        Ok(value) if value == "1"
+    )
+}
+
+#[cfg(feature = "dev-tools")]
+async fn dev_kill_worker() -> StatusCode {
+    if !dev_kill_allowed() {
+        return StatusCode::FORBIDDEN;
+    }
+    let pid = std::process::id();
+    let result = unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+    if result != 0 {
+        return StatusCode::INTERNAL_SERVER_ERROR;
+    }
+    StatusCode::OK
+}
+
 pub fn router() -> Router<ApiState> {
-    Router::new()
+    let router = Router::new()
         .route("/workflows", post(create_workflow).get(list_workflows))
         .route("/workflows/{id}", get(get_workflow))
         .route("/workflows/{id}/run", post(run_workflow))
@@ -229,7 +250,15 @@ pub fn router() -> Router<ApiState> {
         .route("/workflows/{id}/approve", post(approve_workflow))
         .route("/workflows/{id}/reject", post(reject_workflow))
         .route("/workflows/{id}/cancel", post(cancel_workflow))
-        .route("/webhooks/agentmail", post(agentmail_webhook))
+        .route("/webhooks/agentmail", post(agentmail_webhook));
+    #[cfg(feature = "dev-tools")]
+    {
+        router.route("/dev/kill", post(dev_kill_worker))
+    }
+    #[cfg(not(feature = "dev-tools"))]
+    {
+        router
+    }
 }
 
 async fn create_workflow(
@@ -798,6 +827,63 @@ mod tests {
             .expect("body");
         let view: serde_json::Value = serde_json::from_slice(&body).expect("json");
         assert_eq!(view["status"], "cancelled");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn dev_kill_allowed_requires_exact_env_value() {
+        unsafe { std::env::remove_var("DURABLE_AGENT_ALLOW_DEV_KILL") };
+        assert!(!dev_kill_allowed());
+
+        unsafe { std::env::set_var("DURABLE_AGENT_ALLOW_DEV_KILL", "true") };
+        assert!(!dev_kill_allowed());
+
+        unsafe { std::env::set_var("DURABLE_AGENT_ALLOW_DEV_KILL", "1") };
+        assert!(dev_kill_allowed());
+
+        unsafe { std::env::remove_var("DURABLE_AGENT_ALLOW_DEV_KILL") };
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[tokio::test]
+    async fn dev_kill_returns_forbidden_without_env_and_server_stays_alive() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        unsafe { std::env::remove_var("DURABLE_AGENT_ALLOW_DEV_KILL") };
+
+        let path = recovery_test_db_path("dev-kill-forbidden");
+        let _ = std::fs::remove_file(&path);
+        let state = ApiState::new(&path);
+        let app = router().with_state(state);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/dev/kill")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/workflows")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
 
         let _ = std::fs::remove_file(&path);
     }
