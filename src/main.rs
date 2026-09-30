@@ -268,7 +268,7 @@ mod tests {
             .expect("body");
         let list: Vec<serde_json::Value> = serde_json::from_slice(&body).expect("json");
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0], "wf-1");
+        assert_eq!(list[0]["id"], "wf-1");
 
         let response = app
             .clone()

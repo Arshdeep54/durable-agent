@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use agentq::{
     DurableStore, EngineError, Event, Priority, Queue, SqliteStore, StoreError, WorkflowEngine,
@@ -339,10 +339,91 @@ impl ApiState {
 }
 
 #[derive(serde::Serialize)]
-struct WorkflowView {
+struct WorkflowSummary {
     id: String,
+    customer_id: String,
+    subject: String,
     status: String,
     waiting_step: Option<usize>,
+    current_step_name: Option<String>,
+    step_count: usize,
+    started_at_millis: Option<i64>,
+    last_event_at_millis: Option<i64>,
+    duration_millis: Option<i64>,
+}
+
+fn ticket_workflow_step_names() -> Vec<String> {
+    ticket_workflow("_")
+        .steps
+        .iter()
+        .map(|s| s.name.clone())
+        .collect()
+}
+
+fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn active_step_index_from_events(events: &[Event]) -> Option<usize> {
+    let mut current: Option<usize> = None;
+    for event in events {
+        match event {
+            Event::StepStarted { step_index, .. }
+            | Event::StepWaiting { step_index, .. }
+            | Event::StepResumed { step_index, .. }
+            | Event::WorkerRecovered { step_index, .. } => {
+                current = Some(*step_index);
+            }
+            Event::WorkflowCompleted { .. }
+            | Event::WorkflowFailed { .. }
+            | Event::WorkflowCancelled { .. } => {
+                current = None;
+            }
+            _ => {}
+        }
+    }
+    current
+}
+
+fn build_workflow_summary(ticket: Ticket, events_with_ts: Vec<(Event, i64)>) -> WorkflowSummary {
+    let step_names = ticket_workflow_step_names();
+    let step_count = step_names.len();
+    let events: Vec<Event> = events_with_ts.iter().map(|(e, _)| e.clone()).collect();
+    let (status, waiting_step) = workflow_status_from_events(&events);
+
+    let started_at_millis = events_with_ts.first().map(|(_, ts)| *ts);
+    let last_event_at_millis = events_with_ts.last().map(|(_, ts)| *ts);
+
+    let duration_millis = match (started_at_millis, status.as_str()) {
+        (Some(start), "completed" | "failed" | "cancelled") => {
+            last_event_at_millis.map(|last| last - start)
+        }
+        (Some(start), "running" | "waiting") => Some(now_millis() - start),
+        _ => None,
+    };
+
+    let current_step_index = match status.as_str() {
+        "waiting" => waiting_step,
+        "running" => active_step_index_from_events(&events),
+        _ => None,
+    };
+    let current_step_name = current_step_index.and_then(|i| step_names.get(i).cloned());
+
+    WorkflowSummary {
+        id: ticket.id,
+        customer_id: ticket.customer_id,
+        subject: ticket.subject,
+        status,
+        waiting_step,
+        current_step_name,
+        step_count,
+        started_at_millis,
+        last_event_at_millis,
+        duration_millis,
+    }
 }
 
 fn workflow_status_from_events(events: &[Event]) -> (String, Option<usize>) {
@@ -420,6 +501,7 @@ async fn dev_kill_worker() -> StatusCode {
 pub fn router() -> Router<ApiState> {
     let router = Router::new()
         .route("/workflows", post(create_workflow).get(list_workflows))
+        .route("/workflow-definition", get(workflow_definition))
         .route("/workflows/{id}", get(get_workflow))
         .route("/workflows/{id}/run", post(run_workflow))
         .route("/workflows/{id}/events", get(workflow_events))
@@ -460,37 +542,55 @@ async fn create_workflow(
     }
 }
 
-async fn list_workflows(State(state): State<ApiState>) -> Result<Json<Vec<String>>, StatusCode> {
+async fn list_workflows(
+    State(state): State<ApiState>,
+) -> Result<Json<Vec<WorkflowSummary>>, StatusCode> {
     let ids = state.registry.list().map_err(|e| {
         tracing::error!(error = %e, "registry list failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    Ok(Json(ids))
+    let mut summaries = Vec::with_capacity(ids.len());
+    for id in ids {
+        let ticket = state.registry.get(&id).map_err(|e| {
+            tracing::error!(workflow_id = %id, error = %e, "registry get failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        let ticket = ticket.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        let events_with_ts = state
+            .reader_store
+            .load_events_with_timestamps(&id)
+            .map_err(|e| {
+                tracing::error!(workflow_id = %id, error = %e, "load_events_with_timestamps failed");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        summaries.push(build_workflow_summary(ticket, events_with_ts));
+    }
+    Ok(Json(summaries))
+}
+
+async fn workflow_definition() -> Json<Vec<String>> {
+    Json(ticket_workflow_step_names())
 }
 
 async fn get_workflow(
     State(state): State<ApiState>,
     Path(id): Path<String>,
-) -> Result<Json<WorkflowView>, StatusCode> {
+) -> Result<Json<WorkflowSummary>, StatusCode> {
     let ticket = state.registry.get(&id).map_err(|e| {
         tracing::error!(workflow_id = %id, error = %e, "registry get failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    if ticket.is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    let ticket = ticket.ok_or(StatusCode::NOT_FOUND)?;
 
-    let events = state.reader_store.load_events(&id).map_err(|e| {
-        tracing::error!(workflow_id = %id, error = %e, "load_events failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    let (status, waiting_step) = workflow_status_from_events(&events);
+    let events_with_ts = state
+        .reader_store
+        .load_events_with_timestamps(&id)
+        .map_err(|e| {
+            tracing::error!(workflow_id = %id, error = %e, "load_events_with_timestamps failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    Ok(Json(WorkflowView {
-        id,
-        status,
-        waiting_step,
-    }))
+    Ok(Json(build_workflow_summary(ticket, events_with_ts)))
 }
 
 async fn run_workflow(
@@ -946,6 +1046,176 @@ mod tests {
         let (status, waiting) = workflow_status_from_events(&events);
         assert_eq!(status, "cancelled");
         assert!(waiting.is_none());
+    }
+
+    #[tokio::test]
+    async fn workflow_definition_returns_ticket_step_names() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let path = recovery_test_db_path("workflow-definition");
+        let _ = std::fs::remove_file(&path);
+        let app = router().with_state(ApiState::new(&path));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/workflow-definition")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let names: Vec<String> = serde_json::from_slice(&body).expect("json");
+        assert_eq!(
+            names,
+            vec![
+                "IngestTicket",
+                "ClassifyTicket",
+                "RequestApproval",
+                "SendReply",
+                "UpdateTicketSystem",
+                "Complete",
+            ]
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn workflow_summary_api_lifecycle() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let path = recovery_test_db_path("workflow-summary");
+        let _ = std::fs::remove_file(&path);
+        let app = router().with_state(ApiState::new(&path));
+        let workflow_id = "wf-summary";
+        let ticket_json = format!(
+            r#"{{
+            "id": "{workflow_id}",
+            "customer_id": "cust-summary@example.com",
+            "subject": "Summary subject",
+            "body": "Body text"
+        }}"#
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/workflows/{workflow_id}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let pending: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(pending["status"], "pending");
+        assert!(pending["started_at_millis"].is_null());
+        assert!(pending["duration_millis"].is_null());
+        assert_eq!(pending["customer_id"], "cust-summary@example.com");
+        assert_eq!(pending["subject"], "Summary subject");
+        assert_eq!(
+            pending["step_count"],
+            ticket_workflow("_").steps.len() as i64
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/workflows/{workflow_id}/run"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let mut list_summary: Option<serde_json::Value> = None;
+        for _ in 0..200 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/workflows")
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("oneshot");
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let list: Vec<serde_json::Value> = serde_json::from_slice(&body).expect("json");
+            assert_eq!(list.len(), 1);
+            assert_eq!(list[0]["id"], workflow_id);
+            if !list[0]["started_at_millis"].is_null() {
+                list_summary = Some(list[0].clone());
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        let list_summary = list_summary.expect("workflow should have started_at_millis after run");
+        assert_eq!(list_summary["customer_id"], "cust-summary@example.com");
+        assert_eq!(list_summary["subject"], "Summary subject");
+        assert_eq!(
+            list_summary["step_count"],
+            ticket_workflow("_").steps.len() as i64
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/workflows/{workflow_id}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let detail: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(detail["id"], workflow_id);
+        assert_eq!(detail["customer_id"], list_summary["customer_id"]);
+        assert_eq!(detail["subject"], list_summary["subject"]);
+        assert_eq!(
+            detail["started_at_millis"],
+            list_summary["started_at_millis"]
+        );
+        assert!(!detail["started_at_millis"].is_null());
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[tokio::test]
