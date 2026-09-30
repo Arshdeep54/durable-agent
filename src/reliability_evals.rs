@@ -669,6 +669,17 @@ async fn eval_timeout() {
     let events = reader.load_events(workflow_id).expect("events");
     assert!(!workflow_completed(&events));
     assert!(workflow_failed(&events));
+    // max_attempts: 2 with a step that only ever times out means the first
+    // timeout must be followed by a scheduled retry before the second
+    // timeout exhausts attempts and fails the workflow.
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, Event::RetryScheduled { .. }))
+            .count(),
+        1,
+        "expected exactly one retry scheduled between the two timeouts"
+    );
 
     record_eval_pass(&sink, "timeout");
     let _ = std::fs::remove_file(&path);

@@ -446,6 +446,61 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
+    #[tokio::test]
+    async fn workflow_approve_or_reject_before_ever_run_returns_not_found() {
+        let app = test_app("approve-before-run");
+
+        let ticket_json = r#"{
+            "id": "wf-never-run",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }"#;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        // No /run call: the workflow has no events at all. Approving or
+        // rejecting a workflow that was never run — a stale/invalid
+        // approval attempt — must not be accepted.
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-never-run/approve")
+                    .body(Body::from("approved"))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-never-run/reject")
+                    .body(Body::from("rejected"))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
     async fn post_cancel(app: &Router, id: &str, body: &str) -> StatusCode {
         let response = app
             .clone()
