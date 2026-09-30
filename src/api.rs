@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agentq::{
-    DurableStore, EngineError, Event, Priority, Queue, SqliteStore, StoreError,
-    WorkflowEngine, recover,
+    DurableStore, EngineError, Event, Priority, Queue, SqliteStore, StoreError, WorkflowEngine,
+    recover,
 };
 use axum::{
     Json, Router,
@@ -37,9 +37,7 @@ pub struct ApiState {
 impl ApiState {
     pub fn new(db_path: &str) -> Self {
         let engine_store = SqliteStore::new(db_path).expect("engine sqlite store");
-        let reader_store = Arc::new(
-            SqliteStore::new(db_path).expect("reader sqlite store"),
-        );
+        let reader_store = Arc::new(SqliteStore::new(db_path).expect("reader sqlite store"));
         let queue = Queue::builder().start();
         let engine = Arc::new(WorkflowEngine::new(
             queue,
@@ -48,9 +46,7 @@ impl ApiState {
             Duration::from_secs(30),
             Priority::Medium,
         ));
-        let registry = Arc::new(
-            WorkflowRegistry::new(db_path).expect("workflow registry"),
-        );
+        let registry = Arc::new(WorkflowRegistry::new(db_path).expect("workflow registry"));
 
         let classifier: Arc<dyn Classifier> = if std::env::var("OPENAI_API_KEY").is_ok() {
             Arc::new(OpenAiClassifier::new())
@@ -93,9 +89,10 @@ impl ApiState {
     }
 
     pub async fn recover_pending_workflows(&self) -> Result<usize, EngineError> {
-        let ids = self.registry.list().map_err(|e| {
-            EngineError::Store(StoreError::Backend(e.to_string()))
-        })?;
+        let ids = self
+            .registry
+            .list()
+            .map_err(|e| EngineError::Store(StoreError::Backend(e.to_string())))?;
 
         for id in ids {
             let ticket = match self.registry.get(&id) {
@@ -169,6 +166,10 @@ fn workflow_status_from_events(events: &[Event]) -> (String, Option<usize>) {
                 status = "failed".to_string();
                 waiting_step = None;
             }
+            Event::WorkflowCancelled { .. } => {
+                status = "cancelled".to_string();
+                waiting_step = None;
+            }
             Event::StepWaiting { step_index, .. } => {
                 status = "waiting".to_string();
                 waiting_step = Some(*step_index);
@@ -206,6 +207,7 @@ pub fn router() -> Router<ApiState> {
         .route("/workflows/{id}/events", get(workflow_events))
         .route("/workflows/{id}/approve", post(approve_workflow))
         .route("/workflows/{id}/reject", post(reject_workflow))
+        .route("/workflows/{id}/cancel", post(cancel_workflow))
 }
 
 async fn create_workflow(
@@ -222,9 +224,7 @@ async fn create_workflow(
     }
 }
 
-async fn list_workflows(
-    State(state): State<ApiState>,
-) -> Result<Json<Vec<String>>, StatusCode> {
+async fn list_workflows(State(state): State<ApiState>) -> Result<Json<Vec<String>>, StatusCode> {
     let ids = state.registry.list().map_err(|e| {
         eprintln!("registry list failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
@@ -331,12 +331,7 @@ async fn approve_workflow(
 ) -> Result<StatusCode, StatusCode> {
     let step_index = waiting_step_index(state.reader_store.as_ref(), &id)?;
     let input = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
-    spawn_resume(
-        Arc::clone(&state.engine),
-        id,
-        step_index,
-        input,
-    );
+    spawn_resume(Arc::clone(&state.engine), id, step_index, input);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -352,13 +347,36 @@ async fn reject_workflow(
     } else {
         format!("rejected:{reason}")
     };
-    spawn_resume(
-        Arc::clone(&state.engine),
-        id,
-        step_index,
-        input,
-    );
+    spawn_resume(Arc::clone(&state.engine), id, step_index, input);
     Ok(StatusCode::ACCEPTED)
+}
+
+async fn cancel_workflow(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Result<StatusCode, StatusCode> {
+    let ticket = state.registry.get(&id).map_err(|e| {
+        eprintln!("registry get failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    if ticket.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let reason = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let reason = if reason.is_empty() {
+        "cancelled".to_string()
+    } else {
+        reason
+    };
+
+    if let Err(e) = state.engine.cancel(&id, reason).await {
+        eprintln!("workflow cancel failed: {e}");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    Ok(StatusCode::OK)
 }
 
 #[cfg(test)]
@@ -515,9 +533,7 @@ mod tests {
         }
 
         let events = reader.load_events(workflow_id).expect("final events");
-        panic!(
-            "workflow did not reach WorkflowCompleted after recovery; last events: {events:?}"
-        );
+        panic!("workflow did not reach WorkflowCompleted after recovery; last events: {events:?}");
     }
 
     #[tokio::test]
@@ -638,5 +654,128 @@ mod tests {
         ];
         let (status, _) = workflow_status_from_events(&events);
         assert_eq!(status, "completed");
+    }
+
+    #[test]
+    fn workflow_status_cancelled_clears_waiting() {
+        let events = vec![
+            Event::StepWaiting {
+                workflow_id: "w".into(),
+                step_index: 2,
+                reason: "approval".into(),
+            },
+            Event::WorkflowCancelled {
+                workflow_id: "w".into(),
+                reason: "stop".into(),
+            },
+        ];
+        let (status, waiting) = workflow_status_from_events(&events);
+        assert_eq!(status, "cancelled");
+        assert!(waiting.is_none());
+    }
+
+    #[tokio::test]
+    async fn cancel_running_workflow_via_http_stops_before_later_step() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tower::ServiceExt;
+
+        let path = recovery_test_db_path("cancel-running-http");
+        let _ = std::fs::remove_file(&path);
+        let state = ApiState::new(&path);
+        let workflow_id = "wf-cancel-running";
+        let ticket = sample_ticket(workflow_id);
+        state.registry.insert(&ticket).expect("insert");
+
+        let step1_ran = Arc::new(AtomicUsize::new(0));
+        let step1_ran_clone = step1_ran.clone();
+        let step0_done = Arc::new(tokio::sync::Notify::new());
+        let step0_done_clone = step0_done.clone();
+
+        let no_retry = agentq::RetryPolicy {
+            max_attempts: 1,
+            backoff: agentq::Backoff::Fixed(Duration::from_millis(1)),
+        };
+        let workflow = agentq::Workflow {
+            id: workflow_id.to_string(),
+            steps: vec![
+                agentq::StepDef {
+                    name: "first".into(),
+                    retry_policy: no_retry.clone(),
+                    timeout: None,
+                },
+                agentq::StepDef {
+                    name: "second".into(),
+                    retry_policy: no_retry,
+                    timeout: None,
+                },
+            ],
+        };
+
+        let step0: agentq::StepFunc = Box::new(move || {
+            let notify = step0_done_clone.clone();
+            Box::pin(async move {
+                notify.notify_one();
+                tokio::task::yield_now().await;
+                Ok("first".to_string())
+            })
+        });
+        let step1: agentq::StepFunc = Box::new(move || {
+            let counter = step1_ran_clone.clone();
+            Box::pin(async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok("second".to_string())
+            })
+        });
+
+        let engine = Arc::clone(&state.engine);
+        let run_handle = tokio::spawn(async move {
+            engine.run(workflow, vec![step0, step1]).await.expect("run");
+        });
+
+        step0_done.notified().await;
+
+        let app = router().with_state(state);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/workflows/{workflow_id}/cancel"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        run_handle.await.expect("run task");
+
+        assert_eq!(
+            step1_ran.load(Ordering::SeqCst),
+            0,
+            "step after cancellation must not run"
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/workflows/{workflow_id}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let view: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(view["status"], "cancelled");
+
+        let _ = std::fs::remove_file(&path);
     }
 }

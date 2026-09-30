@@ -421,4 +421,185 @@ mod tests {
             .expect("oneshot");
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
+
+    async fn post_cancel(app: &Router, id: &str, body: &str) -> StatusCode {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/workflows/{id}/cancel"))
+                    .body(Body::from(body.to_string()))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        response.status()
+    }
+
+    fn count_workflow_cancelled_events(events: &[serde_json::Value]) -> usize {
+        events
+            .iter()
+            .filter(|e| e.get("WorkflowCancelled").is_some())
+            .count()
+    }
+
+    #[tokio::test]
+    async fn workflow_cancel_fresh_never_run() {
+        let app = test_app("cancel-fresh");
+
+        let ticket_json = r#"{
+            "id": "wf-cancel-fresh",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }"#;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        assert_eq!(
+            post_cancel(&app, "wf-cancel-fresh", "").await,
+            StatusCode::OK
+        );
+
+        let view = poll_status(&app, "wf-cancel-fresh", "cancelled", 50).await;
+        assert_eq!(view["id"], "wf-cancel-fresh");
+        assert!(view["waiting_step"].is_null());
+    }
+
+    #[tokio::test]
+    async fn workflow_cancel_twice_is_idempotent() {
+        let app = test_app("cancel-twice");
+
+        let ticket_json = r#"{
+            "id": "wf-cancel-twice",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }"#;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        assert_eq!(
+            post_cancel(&app, "wf-cancel-twice", "once").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            post_cancel(&app, "wf-cancel-twice", "again").await,
+            StatusCode::OK
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/workflows/wf-cancel-twice/events")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let events: Vec<serde_json::Value> = serde_json::from_slice(&body).expect("json");
+        assert_eq!(count_workflow_cancelled_events(&events), 1);
+    }
+
+    #[tokio::test]
+    async fn workflow_cancel_unknown_returns_not_found() {
+        let app = test_app("cancel-missing");
+        assert_eq!(
+            post_cancel(&app, "no-such-workflow", "").await,
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_cancel_while_waiting_blocks_approve() {
+        let app = test_app("cancel-wait-approve");
+
+        let ticket_json = r#"{
+            "id": "wf-cancel-wait",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }"#;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-cancel-wait/run")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        poll_status(&app, "wf-cancel-wait", "waiting", 200).await;
+
+        assert_eq!(
+            post_cancel(&app, "wf-cancel-wait", "no longer needed").await,
+            StatusCode::OK
+        );
+
+        let cancelled = poll_status(&app, "wf-cancel-wait", "cancelled", 200).await;
+        assert_eq!(cancelled["id"], "wf-cancel-wait");
+        assert!(cancelled["waiting_step"].is_null());
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-cancel-wait/approve")
+                    .body(Body::from("too late"))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }
