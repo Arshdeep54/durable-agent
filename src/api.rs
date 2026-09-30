@@ -57,8 +57,43 @@ impl ApiState {
     }
 
     #[cfg(test)]
+    pub fn new_with_webhook_secret_and_trace_sink(
+        db_path: &str,
+        webhook_secret: &str,
+        trace_sink: Arc<dyn TraceSink>,
+    ) -> Self {
+        let mut state = Self::build(db_path, Some(webhook_secret.to_string()));
+        state.trace_sink = trace_sink;
+        state
+    }
+
+    #[cfg(test)]
     pub fn new_with_trace_sink(db_path: &str, trace_sink: Arc<dyn TraceSink>) -> Self {
         let mut state = Self::build(db_path, None);
+        state.trace_sink = trace_sink;
+        state
+    }
+
+    #[cfg(test)]
+    pub fn new_with_classifier_and_trace_sink(
+        db_path: &str,
+        classifier: Arc<dyn Classifier>,
+        trace_sink: Arc<dyn TraceSink>,
+    ) -> Self {
+        let mut state = Self::build(db_path, None);
+        state.classifier = classifier;
+        state.trace_sink = trace_sink;
+        state
+    }
+
+    #[cfg(test)]
+    pub fn new_with_ticket_system_and_trace_sink(
+        db_path: &str,
+        ticket_system: Arc<dyn TicketSystem>,
+        trace_sink: Arc<dyn TraceSink>,
+    ) -> Self {
+        let mut state = Self::build(db_path, None);
+        state.ticket_system = ticket_system;
         state.trace_sink = trace_sink;
         state
     }

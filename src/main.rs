@@ -10,6 +10,9 @@ mod tracing_sink;
 mod webhook;
 mod workflow_def;
 
+#[cfg(test)]
+mod reliability_evals;
+
 use api::ApiState;
 use axum::{
     Router,
