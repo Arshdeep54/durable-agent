@@ -57,6 +57,39 @@ impl AgentMailSender {
             client: reqwest::Client::new(),
         }
     }
+
+    pub async fn send(&self, to: &str, subject: &str, text: &str) -> Result<(), ApprovalError> {
+        let inbox_id = self.from_address.replace('@', "%40");
+        let url = format!(
+            "https://api.agentmail.to/v0/inboxes/{inbox_id}/messages/send"
+        );
+
+        let response = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.api_key)
+            .json(&serde_json::json!({
+                "to": to,
+                "subject": subject,
+                "text": text,
+            }))
+            .send()
+            .await
+            .map_err(|e| ApprovalError(e.to_string()))?;
+
+        let status = response.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| String::new());
+            Err(ApprovalError(format!(
+                "agentmail send failed with {status}: {body}"
+            )))
+        }
+    }
 }
 
 impl ApprovalSender for AgentMailSender {
@@ -65,48 +98,23 @@ impl ApprovalSender for AgentMailSender {
         ticket: &Ticket,
         draft_reply: &str,
     ) -> Pin<Box<dyn Future<Output = Result<(), ApprovalError>> + Send>> {
-        let api_key = self.api_key.clone();
-        let from_address = self.from_address.clone();
-        let to_address = self.to_address.clone();
-        let client = self.client.clone();
         let ticket_id = ticket.id.clone();
         let ticket_subject = ticket.subject.clone();
         let draft = draft_reply.to_string();
+        let to_address = self.to_address.clone();
+        let sender = AgentMailSender {
+            api_key: self.api_key.clone(),
+            from_address: self.from_address.clone(),
+            to_address: self.to_address.clone(),
+            client: self.client.clone(),
+        };
 
         Box::pin(async move {
-            let inbox_id = from_address.replace('@', "%40");
-            let url = format!(
-                "https://api.agentmail.to/v0/inboxes/{inbox_id}/messages/send"
-            );
             let subject = format!("Approval needed: ticket {ticket_id}");
             let text = format!(
                 "Subject: {ticket_subject}\n\nDraft reply:\n{draft}"
             );
-
-            let response = client
-                .post(&url)
-                .bearer_auth(&api_key)
-                .json(&serde_json::json!({
-                    "to": to_address,
-                    "subject": subject,
-                    "text": text,
-                }))
-                .send()
-                .await
-                .map_err(|e| ApprovalError(e.to_string()))?;
-
-            let status = response.status();
-            if status.is_success() {
-                Ok(())
-            } else {
-                let body = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| String::new());
-                Err(ApprovalError(format!(
-                    "agentmail send failed with {status}: {body}"
-                )))
-            }
+            sender.send(&to_address, &subject, &text).await
         })
     }
 }
