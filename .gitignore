@@ -2,3 +2,4 @@
 .env
 .cursor/
 .implement/
+durable-agent.db

@@ -183,19 +183,122 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
   var recoverBanner = document.getElementById('recoverBanner');
   var statusPill = document.getElementById('statusPill');
   var statusText = document.getElementById('statusText');
-  var timers = [];
+  var bannerTimers = [];
   var startTime = null;
   var currentWorkflowId = null;
   var pollTimer = null;
-  var stepAnimationActive = false;
+  var loggedEventCount = 0;
+  var workerRecoveredSeen = 0;
 
   function clock(){
     var s = Math.floor((Date.now() - startTime) / 1000);
     var m = Math.floor(s/60); s = s%60;
     return (m+':'+(s<10?'0':'')+s);
   }
-  function after(ms, fn){ var t = setTimeout(fn, ms); timers.push(t); return t; }
-  function clearTimers(){ timers.forEach(clearTimeout); timers = []; }
+  function after(ms, fn){ var t = setTimeout(fn, ms); bannerTimers.push(t); return t; }
+  function clearBannerTimers(){ bannerTimers.forEach(clearTimeout); bannerTimers = []; }
+
+  function eventKey(ev){ return Object.keys(ev)[0]; }
+  function eventPayload(ev){ return ev[eventKey(ev)]; }
+
+  function showRecoveryBanners(){
+    crashBanner.classList.add('show');
+    after(1400, function(){
+      crashBanner.classList.remove('show');
+      recoverBanner.classList.add('show');
+      after(900, function(){ recoverBanner.classList.remove('show'); });
+    });
+  }
+
+  function foldEvents(events){
+    var next = steps.map(function(){ return {status:'pending', attempt:0}; });
+    var failedAt = steps.map(function(){ return -1; });
+    for(var ei = 0; ei < events.length; ei++){
+      var key = eventKey(events[ei]);
+      var p = eventPayload(events[ei]);
+      var idx;
+      if(key === 'StepStarted'){
+        idx = p.step_index;
+        next[idx].status = 'running';
+        next[idx].attempt = p.attempt + 1;
+      } else if(key === 'StepCompleted'){
+        idx = p.step_index;
+        next[idx].status = 'completed';
+      } else if(key === 'StepWaiting'){
+        idx = p.step_index;
+        next[idx].status = 'waiting';
+      } else if(key === 'StepResumed'){
+        idx = p.step_index;
+        next[idx].status = 'running';
+      } else if(key === 'WorkerRecovered'){
+        idx = p.step_index;
+        next[idx].status = 'crashed';
+      } else if(key === 'StepFailed'){
+        failedAt[p.step_index] = ei;
+      } else if(key === 'RetryScheduled'){
+        idx = p.step_index;
+        if(next[idx].status === 'crashed') next[idx].status = 'pending';
+        failedAt[idx] = -1;
+      }
+    }
+    for(var i = 0; i < steps.length; i++){
+      if(failedAt[i] < 0) continue;
+      var recovered = false;
+      for(var ej = failedAt[i] + 1; ej < events.length; ej++){
+        var k = eventKey(events[ej]);
+        var pl = eventPayload(events[ej]);
+        if((k === 'RetryScheduled' || k === 'WorkerRecovered') && pl.step_index === i){
+          recovered = true;
+          break;
+        }
+      }
+      if(!recovered) next[i].status = 'crashed';
+    }
+    return next;
+  }
+
+  function describeEvent(ev){
+    var key = eventKey(ev);
+    var p = eventPayload(ev);
+    if(key === 'WorkflowStarted') return {tag:'WorkflowStarted', cls:'info', msg:p.workflow_id};
+    if(key === 'StepStarted') return {tag:'StepStarted', cls:'info', msg:steps[p.step_index].name + ' · attempt ' + (p.attempt + 1)};
+    if(key === 'StepCompleted'){
+      var msg = steps[p.step_index].name;
+      if(p.output) msg += ' → ' + p.output;
+      return {tag:'StepCompleted', cls:'ok', msg:msg};
+    }
+    if(key === 'StepWaiting') return {tag:'StepWaiting', cls:'warn', msg:steps[p.step_index].name + ' → ' + (p.reason || 'waiting')};
+    if(key === 'StepResumed') return {tag:'StepResumed', cls:'info', msg:steps[p.step_index].name + ' resumed'};
+    if(key === 'RetryScheduled') return {tag:'RetryScheduled', cls:'warn', msg:steps[p.step_index].name + ' · attempt ' + (p.attempt + 1)};
+    if(key === 'StepFailed') return {tag:'StepFailed', cls:'err', msg:steps[p.step_index].name + ' — ' + p.reason};
+    if(key === 'WorkerRecovered') return {tag:'WorkerRecovered', cls:'warn', msg:'stale lease found for ' + steps[p.step_index].name + ' — re-admitting'};
+    if(key === 'WorkflowCompleted') return {tag:'WorkflowCompleted', cls:'ok', msg:(p.workflow_id || currentWorkflowId || '') + ' resolved end to end'};
+    if(key === 'WorkflowFailed') return {tag:'WorkflowFailed', cls:'err', msg:p.reason};
+    return {tag:key, cls:'info', msg:''};
+  }
+
+  function syncEventLog(events){
+    while(loggedEventCount < events.length){
+      var line = describeEvent(events[loggedEventCount]);
+      log(line.tag, line.cls, line.msg);
+      loggedEventCount += 1;
+    }
+  }
+
+  function applyEvents(events){
+    var recovered = 0;
+    for(var r = 0; r < events.length; r++){
+      if(eventKey(events[r]) === 'WorkerRecovered') recovered += 1;
+    }
+    if(recovered > workerRecoveredSeen){
+      workerRecoveredSeen = recovered;
+      showRecoveryBanners();
+    }
+    state = foldEvents(events);
+    killBtn.disabled = state[1].status !== 'running';
+    render();
+    syncEventLog(events);
+  }
 
   function icon(status){
     if(status==='completed') return '<svg viewBox="0 0 24 24"><circle class="ring" cx="12" cy="12" r="10" style="stroke:var(--accent)"/><path class="check drawn" d="M7 12.5l3 3 7-7"/></svg>';
@@ -243,13 +346,23 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
   }
 
+  function pollWorkflow(){
+    if(!currentWorkflowId) return Promise.resolve();
+    var id = currentWorkflowId;
+    return fetch('/workflows/' + encodeURIComponent(id))
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function(record){
+        applyWorkflowStatus(record.status);
+        return fetch('/workflows/' + encodeURIComponent(id) + '/events');
+      })
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function(events){ applyEvents(events); });
+  }
+
   function startPolling(){
     if(pollTimer || !currentWorkflowId) return;
     pollTimer = setInterval(function(){
-      fetch('/workflows/' + encodeURIComponent(currentWorkflowId))
-        .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
-        .then(function(record){ applyWorkflowStatus(record.status); })
-        .catch(function(){});
+      pollWorkflow().catch(function(){});
     }, 800);
   }
 
@@ -264,67 +377,45 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     });
   }
 
-  function jumpToWaitingState(){
-    clearTimers();
-    state[0] = {status:'completed', attempt:1};
-    state[1] = {status:'completed', attempt:1};
-    state[2] = {status:'waiting', attempt:1};
-    for(var j = 3; j < steps.length; j++) state[j] = {status:'pending', attempt:0};
-    render();
-    setStatus('waiting','Waiting for approval');
-    approveBtn.hidden = false;
-    approveBtn.disabled = false;
-    killBtn.disabled = true;
-    window.__killCurrent = null;
-  }
-
-  function jumpToCompletedState(){
-    clearTimers();
-    state = steps.map(function(){ return {status:'completed', attempt:1}; });
-    render();
-    setStatus('done','Completed');
-    log('WorkflowCompleted','ok', currentWorkflowId + ' resolved end to end');
-    killBtn.disabled = true;
-    stepAnimationActive = false;
-    window.__killCurrent = null;
-  }
-
   function applyWorkflowStatus(status){
     if(status === 'pending'){
       setStatus('idle','Idle');
+      approveBtn.hidden = true;
       return;
     }
     if(status === 'running'){
       setStatus('running','Running');
-      if(!stepAnimationActive){
-        stepAnimationActive = true;
-        runFrom(0);
-      }
+      approveBtn.hidden = true;
       return;
     }
     if(status === 'waiting'){
-      jumpToWaitingState();
+      setStatus('waiting','Waiting for approval');
+      approveBtn.hidden = false;
+      approveBtn.disabled = false;
+      killBtn.disabled = true;
       return;
     }
     if(status === 'completed'){
       stopPolling();
-      if(state[2].status === 'waiting'){
-        setStatus('running','Running');
-        runFrom(3);
-      } else if(state[steps.length - 1].status !== 'completed'){
-        jumpToCompletedState();
-      } else {
-        setStatus('done','Completed');
-        stepAnimationActive = false;
-      }
+      setStatus('done','Completed');
+      approveBtn.hidden = true;
+      killBtn.disabled = true;
+      return;
+    }
+    if(status === 'failed'){
+      stopPolling();
+      setStatus('idle','Failed');
+      approveBtn.hidden = true;
+      killBtn.disabled = true;
     }
   }
 
   function reset(){
-    clearTimers();
+    clearBannerTimers();
     stopPolling();
     currentWorkflowId = null;
-    stepAnimationActive = false;
+    loggedEventCount = 0;
+    workerRecoveredSeen = 0;
     state = steps.map(function(){ return {status:'pending', attempt:0}; });
     logEl.innerHTML = '<div class="log-empty">No events yet. Run the workflow to start.</div>';
     setStatus('idle','Idle');
@@ -333,91 +424,29 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     approveBtn.hidden = true;
     crashBanner.classList.remove('show');
     recoverBanner.classList.remove('show');
-    window.__killCurrent = null;
     render();
-  }
-
-  function runStep(i, onDone){
-    state[i].status = 'running';
-    state[i].attempt += 1;
-    render();
-    log('StepStarted','info', steps[i].name + ' · attempt ' + state[i].attempt);
-    if(i === 1){ // ClassifyTicket: killable window
-      killBtn.disabled = false;
-      var killedRef = { killed:false };
-      window.__killCurrent = function(){
-        killedRef.killed = true;
-        killBtn.disabled = true;
-        state[1].status = 'crashed';
-        render();
-        crashBanner.classList.add('show');
-        after(1400, function(){
-          crashBanner.classList.remove('show');
-          recoverBanner.classList.add('show');
-          log('WorkerRecovered','warn','stale lease found for ClassifyTicket — re-admitting');
-          after(900, function(){
-            recoverBanner.classList.remove('show');
-            runStep(1, onDone);
-          });
-        });
-      };
-      after(2200, function(){
-        if(killedRef.killed) return;
-        killBtn.disabled = true;
-        window.__killCurrent = null;
-        state[1].status = 'completed';
-        render();
-        log('StepCompleted','ok', steps[1].name + ' → category: billing, urgency: normal');
-        onDone();
-      });
-      return;
-    }
-    var delay = i===0 ? 500 : 650;
-    after(delay, function(){
-      if(i===2){
-        state[i].status = 'waiting';
-        render();
-        log('StepWaiting','warn','RequestApproval → sent via AgentMail, workflow waiting');
-        setStatus('waiting','Waiting for approval');
-        approveBtn.hidden = false;
-        approveBtn.disabled = false;
-        return; // paused until Approve is clicked
-      }
-      state[i].status = 'completed';
-      render();
-      log('StepCompleted','ok', steps[i].name + ' completed');
-      onDone();
-    });
-  }
-
-  function runFrom(i){
-    if(i >= steps.length){
-      stepAnimationActive = false;
-      fetch('/workflows/' + encodeURIComponent(currentWorkflowId))
-        .then(function(r){ return r.ok ? r.json() : null; })
-        .then(function(record){
-          if(record && record.status === 'completed'){
-            setStatus('done','Completed');
-            log('WorkflowCompleted','ok', currentWorkflowId + ' resolved end to end');
-          }
-        })
-        .catch(function(){});
-      return;
-    }
-    runStep(i, function(){ runFrom(i+1); });
   }
 
   runBtn.addEventListener('click', function(){
     runBtn.disabled = true;
     currentWorkflowId = 'ticket-' + Date.now();
     startTime = Date.now();
-    stepAnimationActive = false;
-    apiPost('/workflows', {id: currentWorkflowId})
-      .then(function(){ return apiPost('/workflows/' + encodeURIComponent(currentWorkflowId) + '/run'); })
-      .then(function(record){
-        log('WorkflowStarted','info', currentWorkflowId);
+    loggedEventCount = 0;
+    workerRecoveredSeen = 0;
+    logEl.innerHTML = '';
+    apiPost('/workflows', {
+      id: currentWorkflowId,
+      customer_id: 'customer@example.com',
+      subject: 'Need help',
+      body: 'Just saying hello'
+    })
+      .then(function(){
+        return fetch('/workflows/' + encodeURIComponent(currentWorkflowId) + '/run', {method:'POST'});
+      })
+      .then(function(r){
+        if(!r.ok) return Promise.reject(r.status);
         startPolling();
-        applyWorkflowStatus(record.status);
+        return pollWorkflow();
       })
       .catch(function(){
         log('Error','warn','failed to start workflow');
@@ -427,17 +456,22 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
   });
 
   killBtn.addEventListener('click', function(){
-    if(window.__killCurrent) window.__killCurrent();
+    if(killBtn.disabled) return;
+    showRecoveryBanners();
   });
 
   approveBtn.addEventListener('click', function(){
     if(!currentWorkflowId) return;
     approveBtn.disabled = true;
     approveBtn.hidden = true;
-    apiPost('/workflows/' + encodeURIComponent(currentWorkflowId) + '/approve')
-      .then(function(record){
+    fetch('/workflows/' + encodeURIComponent(currentWorkflowId) + '/approve', {
+      method: 'POST',
+      body: 'approved reply text'
+    })
+      .then(function(r){
+        if(!r.ok) return Promise.reject(r.status);
         log('ApprovalReceived','ok','human approved the drafted reply');
-        applyWorkflowStatus(record.status);
+        return pollWorkflow();
       })
       .catch(function(){
         log('Error','warn','approve failed');
