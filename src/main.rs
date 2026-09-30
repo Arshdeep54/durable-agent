@@ -15,8 +15,9 @@ use axum::{
 };
 use tower_http::services::ServeFile;
 
-fn app() -> Router {
-    let state = ApiState::new();
+const DB_PATH: &str = "durable-agent.db";
+
+fn app(state: ApiState) -> Router {
     Router::new()
         .route("/", get_service(ServeFile::new("web/index.html")))
         .merge(
@@ -29,10 +30,11 @@ fn app() -> Router {
 
 #[tokio::main]
 async fn main() {
+    let state = ApiState::new(DB_PATH);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
         .await
         .expect("bind 127.0.0.1:8080");
-    axum::serve(listener, app()).await.expect("serve");
+    axum::serve(listener, app(state)).await.expect("serve");
 }
 
 #[cfg(test)]
@@ -40,11 +42,60 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use std::time::Duration;
     use tower::ServiceExt;
+
+    fn test_db_path(suffix: &str) -> String {
+        std::env::temp_dir()
+            .join(format!(
+                "durable-agent-api-test-{}-{}.db",
+                std::process::id(),
+                suffix
+            ))
+            .to_str()
+            .expect("temp db path utf8")
+            .to_string()
+    }
+
+    fn test_app(suffix: &str) -> Router {
+        let path = test_db_path(suffix);
+        let _ = std::fs::remove_file(&path);
+        app(ApiState::new(&path))
+    }
+
+    async fn poll_status(
+        app: &Router,
+        id: &str,
+        want: &str,
+        max_attempts: u32,
+    ) -> serde_json::Value {
+        for _ in 0..max_attempts {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/workflows/{id}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("oneshot");
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let view: serde_json::Value = serde_json::from_slice(&body).expect("json");
+            if view["status"] == want {
+                return view;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("workflow {id} did not reach status {want} within {max_attempts} attempts");
+    }
 
     #[tokio::test]
     async fn index_returns_html() {
-        let response = app()
+        let response = test_app("index")
             .oneshot(
                 Request::builder()
                     .uri("/")
@@ -69,7 +120,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_returns_ok() {
-        let response = app()
+        let response = test_app("health")
             .oneshot(
                 Request::builder()
                     .uri("/health")
@@ -84,54 +135,48 @@ mod tests {
 
     #[tokio::test]
     async fn workflow_api_lifecycle() {
-        let app = app();
+        let app = test_app("lifecycle");
 
-        let create = |id: &str| {
-            Request::builder()
-                .method("POST")
-                .uri("/workflows")
-                .header("content-type", "application/json")
-                .body(Body::from(format!(r#"{{"id":"{}"}}"# , id)))
-                .expect("request")
-        };
-
-        let response = app
-            .clone()
-            .oneshot(create("wf-1"))
-            .await
-            .expect("oneshot");
-        assert_eq!(response.status(), StatusCode::CREATED);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("body");
-        let record: serde_json::Value = serde_json::from_slice(&body).expect("json");
-        assert_eq!(record["id"], "wf-1");
-        assert_eq!(record["status"], "pending");
-
-        let response = app
-            .clone()
-            .oneshot(create("wf-1"))
-            .await
-            .expect("oneshot");
-        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let ticket_json = r#"{
+            "id": "wf-1",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }"#;
 
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/workflows/wf-1/run")
-                    .body(Body::empty())
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
                     .expect("request"),
             )
             .await
             .expect("oneshot");
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::CREATED);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("body");
-        let record: serde_json::Value = serde_json::from_slice(&body).expect("json");
-        assert_eq!(record["status"], "running");
+        let created: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(created["id"], "wf-1");
+        assert_eq!(created["customer_id"], "cust@example.com");
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
 
         let response = app
             .clone()
@@ -147,9 +192,25 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("body");
-        let record: serde_json::Value = serde_json::from_slice(&body).expect("json");
-        assert_eq!(record["id"], "wf-1");
-        assert_eq!(record["status"], "running");
+        let view: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(view["id"], "wf-1");
+        assert_eq!(view["status"], "pending");
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-1/run")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let waiting = poll_status(&app, "wf-1", "waiting", 200).await;
+        assert_eq!(waiting["waiting_step"], 2);
 
         let response = app
             .clone()
@@ -179,7 +240,7 @@ mod tests {
             .expect("body");
         let list: Vec<serde_json::Value> = serde_json::from_slice(&body).expect("json");
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0]["id"], "wf-1");
+        assert_eq!(list[0], "wf-1");
 
         let response = app
             .clone()
@@ -196,23 +257,23 @@ mod tests {
             .await
             .expect("body");
         let events: Vec<serde_json::Value> = serde_json::from_slice(&body).expect("json");
-        assert!(events.is_empty());
+        assert!(!events.is_empty());
 
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri("/workflows/wf-1/approve")
-                    .body(Body::empty())
+                    .body(Body::from("approved reply text"))
                     .expect("request"),
             )
             .await
             .expect("oneshot");
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("body");
-        let record: serde_json::Value = serde_json::from_slice(&body).expect("json");
-        assert_eq!(record["status"], "completed");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let completed = poll_status(&app, "wf-1", "completed", 200).await;
+        assert_eq!(completed["id"], "wf-1");
+        assert!(completed["waiting_step"].is_null());
     }
 }
