@@ -83,11 +83,15 @@ impl TraceSink for RespanSink {
                     if !resp.status().is_success() {
                         let status = resp.status();
                         let body = resp.text().await.unwrap_or_default();
-                        eprintln!("respan ingest failed: HTTP {status}: {body}");
+                        tracing::error!(
+                            status = %status,
+                            body = %body,
+                            "respan ingest failed"
+                        );
                     }
                 }
                 Err(e) => {
-                    eprintln!("respan ingest failed: {e}");
+                    tracing::error!(error = %e, "respan ingest failed");
                 }
             }
         });
@@ -298,7 +302,11 @@ pub fn spawn_workflow_trace_batch(
         let events = match reader_store.load_events(&workflow_id) {
             Ok(events) => events,
             Err(e) => {
-                eprintln!("trace forward: load_events for {workflow_id} failed: {e}");
+                tracing::error!(
+                    workflow_id = %workflow_id,
+                    error = %e,
+                    "trace forward: load_events failed"
+                );
                 return;
             }
         };

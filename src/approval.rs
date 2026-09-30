@@ -41,7 +41,12 @@ impl CustomerMailer for MockCustomerMailer {
         let subject = subject.to_string();
         let text = text.to_string();
         Box::pin(async move {
-            println!("reply to {to} ({subject}): {text}");
+            tracing::info!(
+                to = %to,
+                subject = %subject,
+                text = %text,
+                "mock customer reply sent"
+            );
             Ok(())
         })
     }
@@ -73,7 +78,7 @@ impl ApprovalSender for MockApprovalSender {
         let id = ticket.id.clone();
         let draft = draft_reply.to_string();
         Box::pin(async move {
-            println!("approval request for ticket {id}: {draft}");
+            tracing::info!(workflow_id = %id, draft = %draft, "mock approval request sent");
             Ok(None)
         })
     }
@@ -106,6 +111,7 @@ impl AgentMailSender {
         let inbox_id = self.from_address.replace('@', "%40");
         let url = format!("https://api.agentmail.to/v0/inboxes/{inbox_id}/messages/send");
 
+        tracing::info!(to = %to, subject = %subject, "agentmail send");
         let response = self
             .client
             .post(&url)
@@ -117,9 +123,12 @@ impl AgentMailSender {
             }))
             .send()
             .await
-            .map_err(|e| ApprovalError {
-                message: e.to_string(),
-                status: None,
+            .map_err(|e| {
+                tracing::error!(to = %to, subject = %subject, error = %e, "agentmail send failed");
+                ApprovalError {
+                    message: e.to_string(),
+                    status: None,
+                }
             })?;
 
         let status = response.status();
@@ -135,6 +144,13 @@ impl AgentMailSender {
             Ok(sent)
         } else {
             let body = response.text().await.unwrap_or_else(|_| String::new());
+            tracing::error!(
+                to = %to,
+                subject = %subject,
+                status = %status,
+                body = %body,
+                "agentmail send failed"
+            );
             Err(ApprovalError {
                 message: format!("agentmail send failed with {status}: {body}"),
                 status: Some(status.as_u16()),

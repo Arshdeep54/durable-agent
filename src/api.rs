@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use agentq::{
@@ -28,6 +29,75 @@ use crate::workflow_def::ticket_workflow;
 
 const WORKER_ID: &str = "worker-1";
 
+pub(crate) struct Metrics {
+    workflows_created: AtomicU64,
+    workflow_runs: AtomicU64,
+    approvals: AtomicU64,
+    rejections: AtomicU64,
+    cancellations: AtomicU64,
+    webhooks_processed: AtomicU64,
+}
+
+impl Metrics {
+    fn new() -> Self {
+        Self {
+            workflows_created: AtomicU64::new(0),
+            workflow_runs: AtomicU64::new(0),
+            approvals: AtomicU64::new(0),
+            rejections: AtomicU64::new(0),
+            cancellations: AtomicU64::new(0),
+            webhooks_processed: AtomicU64::new(0),
+        }
+    }
+
+    fn inc_workflows_created(&self) {
+        self.workflows_created.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn inc_workflow_runs(&self) {
+        self.workflow_runs.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn inc_approvals(&self) {
+        self.approvals.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn inc_rejections(&self) {
+        self.rejections.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn inc_cancellations(&self) {
+        self.cancellations.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn inc_webhooks_processed(&self) {
+        self.webhooks_processed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self, workflows_waiting: u64) -> MetricsView {
+        MetricsView {
+            workflows_created: self.workflows_created.load(Ordering::Relaxed),
+            workflow_runs: self.workflow_runs.load(Ordering::Relaxed),
+            approvals: self.approvals.load(Ordering::Relaxed),
+            rejections: self.rejections.load(Ordering::Relaxed),
+            cancellations: self.cancellations.load(Ordering::Relaxed),
+            webhooks_processed: self.webhooks_processed.load(Ordering::Relaxed),
+            workflows_waiting,
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct MetricsView {
+    workflows_created: u64,
+    workflow_runs: u64,
+    approvals: u64,
+    rejections: u64,
+    cancellations: u64,
+    webhooks_processed: u64,
+    workflows_waiting: u64,
+}
+
 #[derive(Clone)]
 pub struct ApiState {
     pub engine: Arc<WorkflowEngine<SqliteStore>>,
@@ -41,6 +111,7 @@ pub struct ApiState {
     ticket_system: Arc<dyn TicketSystem>,
     trace_sink: Arc<dyn TraceSink>,
     worker_id: String,
+    pub(crate) metrics: Arc<Metrics>,
 }
 
 impl ApiState {
@@ -163,7 +234,27 @@ impl ApiState {
             ticket_system,
             trace_sink,
             worker_id,
+            metrics: Arc::new(Metrics::new()),
         }
+    }
+
+    fn count_workflows_waiting(&self) -> Result<u64, StatusCode> {
+        let ids = self.registry.list().map_err(|e| {
+            tracing::error!(error = %e, "registry list failed for metrics");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        let mut waiting = 0u64;
+        for id in ids {
+            let events = self.reader_store.load_events(&id).map_err(|e| {
+                tracing::error!(workflow_id = %id, error = %e, "load_events failed for metrics");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+            let (status, _) = workflow_status_from_events(&events);
+            if status == "waiting" {
+                waiting += 1;
+            }
+        }
+        Ok(waiting)
     }
 
     pub async fn recover_pending_workflows(&self) -> Result<usize, EngineError> {
@@ -178,11 +269,18 @@ impl ApiState {
             let ticket = match self.registry.get(&id) {
                 Ok(Some(ticket)) => ticket,
                 Ok(None) => {
-                    eprintln!("startup recovery: workflow {id} not found in registry");
+                    tracing::error!(
+                        workflow_id = %id,
+                        "startup recovery: workflow not found in registry"
+                    );
                     continue;
                 }
                 Err(e) => {
-                    eprintln!("startup recovery: registry get for {id} failed: {e}");
+                    tracing::error!(
+                        workflow_id = %id,
+                        error = %e,
+                        "startup recovery: registry get failed"
+                    );
                     continue;
                 }
             };
@@ -190,7 +288,11 @@ impl ApiState {
             let events = match self.reader_store.load_events(&id) {
                 Ok(events) => events,
                 Err(e) => {
-                    eprintln!("startup recovery: load_events for {id} failed: {e}");
+                    tracing::error!(
+                        workflow_id = %id,
+                        error = %e,
+                        "startup recovery: load_events failed"
+                    );
                     continue;
                 }
             };
@@ -213,7 +315,11 @@ impl ApiState {
             );
 
             if let Err(e) = self.engine.register_workflow(workflow, bodies) {
-                eprintln!("startup recovery: register_workflow for {id} failed: {e}");
+                tracing::error!(
+                    workflow_id = %id,
+                    error = %e,
+                    "startup recovery: register_workflow failed"
+                );
                 continue;
             }
             recovery_trace_targets.push(id);
@@ -320,7 +426,8 @@ pub fn router() -> Router<ApiState> {
         .route("/workflows/{id}/approve", post(approve_workflow))
         .route("/workflows/{id}/reject", post(reject_workflow))
         .route("/workflows/{id}/cancel", post(cancel_workflow))
-        .route("/webhooks/agentmail", post(agentmail_webhook));
+        .route("/webhooks/agentmail", post(agentmail_webhook))
+        .route("/metrics", get(get_metrics));
     #[cfg(feature = "dev-tools")]
     {
         router.route("/dev/kill", post(dev_kill_worker))
@@ -331,15 +438,23 @@ pub fn router() -> Router<ApiState> {
     }
 }
 
+async fn get_metrics(State(state): State<ApiState>) -> Result<Json<MetricsView>, StatusCode> {
+    let workflows_waiting = state.count_workflows_waiting()?;
+    Ok(Json(state.metrics.snapshot(workflows_waiting)))
+}
+
 async fn create_workflow(
     State(state): State<ApiState>,
     Json(ticket): Json<Ticket>,
 ) -> Result<(StatusCode, Json<Ticket>), StatusCode> {
     match state.registry.insert(&ticket) {
-        Ok(()) => Ok((StatusCode::CREATED, Json(ticket))),
+        Ok(()) => {
+            state.metrics.inc_workflows_created();
+            Ok((StatusCode::CREATED, Json(ticket)))
+        }
         Err(e) if is_unique_violation(&e) => Err(StatusCode::CONFLICT),
         Err(e) => {
-            eprintln!("registry insert failed: {e}");
+            tracing::error!(workflow_id = %ticket.id, error = %e, "registry insert failed");
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -347,7 +462,7 @@ async fn create_workflow(
 
 async fn list_workflows(State(state): State<ApiState>) -> Result<Json<Vec<String>>, StatusCode> {
     let ids = state.registry.list().map_err(|e| {
-        eprintln!("registry list failed: {e}");
+        tracing::error!(error = %e, "registry list failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     Ok(Json(ids))
@@ -358,7 +473,7 @@ async fn get_workflow(
     Path(id): Path<String>,
 ) -> Result<Json<WorkflowView>, StatusCode> {
     let ticket = state.registry.get(&id).map_err(|e| {
-        eprintln!("registry get failed: {e}");
+        tracing::error!(workflow_id = %id, error = %e, "registry get failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     if ticket.is_none() {
@@ -366,7 +481,7 @@ async fn get_workflow(
     }
 
     let events = state.reader_store.load_events(&id).map_err(|e| {
-        eprintln!("load_events failed: {e}");
+        tracing::error!(workflow_id = %id, error = %e, "load_events failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     let (status, waiting_step) = workflow_status_from_events(&events);
@@ -383,7 +498,7 @@ async fn run_workflow(
     Path(id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
     let ticket = state.registry.get(&id).map_err(|e| {
-        eprintln!("registry get failed: {e}");
+        tracing::error!(workflow_id = %id, error = %e, "registry get failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     let ticket = ticket.ok_or(StatusCode::NOT_FOUND)?;
@@ -407,11 +522,12 @@ async fn run_workflow(
     let workflow_id = id.clone();
     tokio::spawn(async move {
         if let Err(e) = engine.run(workflow, bodies).await {
-            eprintln!("workflow run failed: {e}");
+            tracing::error!(workflow_id = %workflow_id, error = %e, "workflow run failed");
         }
         spawn_workflow_trace_batch(reader_store, trace_sink, worker_id, workflow_id);
     });
 
+    state.metrics.inc_workflow_runs();
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -420,7 +536,7 @@ async fn workflow_events(
     Path(id): Path<String>,
 ) -> Result<Json<Vec<Event>>, StatusCode> {
     let events = state.reader_store.load_events(&id).map_err(|e| {
-        eprintln!("load_events failed: {e}");
+        tracing::error!(workflow_id = %id, error = %e, "load_events failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     Ok(Json(events))
@@ -428,7 +544,7 @@ async fn workflow_events(
 
 fn waiting_step_index(reader_store: &SqliteStore, id: &str) -> Result<usize, StatusCode> {
     let events = reader_store.load_events(id).map_err(|e| {
-        eprintln!("load_events failed: {e}");
+        tracing::error!(workflow_id = %id, error = %e, "load_events failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     let (status, waiting_step) = workflow_status_from_events(&events);
@@ -449,7 +565,12 @@ fn spawn_resume(
 ) {
     tokio::spawn(async move {
         if let Err(e) = engine.resume(&id, step_index, input).await {
-            eprintln!("workflow resume failed: {e}");
+            tracing::error!(
+                workflow_id = %id,
+                step_index,
+                error = %e,
+                "workflow resume failed"
+            );
         }
         spawn_workflow_trace_batch(reader_store, trace_sink, worker_id, id);
     });
@@ -471,6 +592,7 @@ async fn approve_workflow(
         step_index,
         input,
     );
+    state.metrics.inc_approvals();
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -495,6 +617,7 @@ async fn reject_workflow(
         step_index,
         input,
     );
+    state.metrics.inc_rejections();
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -504,7 +627,7 @@ async fn cancel_workflow(
     body: Bytes,
 ) -> Result<StatusCode, StatusCode> {
     let ticket = state.registry.get(&id).map_err(|e| {
-        eprintln!("registry get failed: {e}");
+        tracing::error!(workflow_id = %id, error = %e, "registry get failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     if ticket.is_none() {
@@ -519,10 +642,11 @@ async fn cancel_workflow(
     };
 
     if let Err(e) = state.engine.cancel(&id, reason).await {
-        eprintln!("workflow cancel failed: {e}");
+        tracing::error!(workflow_id = %id, error = %e, "workflow cancel failed");
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
+    state.metrics.inc_cancellations();
     Ok(StatusCode::OK)
 }
 

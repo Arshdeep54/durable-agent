@@ -36,10 +36,11 @@ fn app(state: ApiState) -> Router {
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
     let state = ApiState::new(DB_PATH);
     match state.recover_pending_workflows().await {
-        Ok(count) => println!("startup recovery: re-admitted {count} interrupted step(s)"),
-        Err(e) => eprintln!("startup recovery failed: {e}"),
+        Ok(count) => tracing::info!(count, "startup recovery: re-admitted interrupted step(s)"),
+        Err(e) => tracing::error!(error = %e, "startup recovery failed"),
     }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
         .await
@@ -624,5 +625,118 @@ mod tests {
             .await
             .expect("oneshot");
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    async fn fetch_metrics(app: &Router) -> serde_json::Value {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        serde_json::from_slice(&body).expect("metrics json")
+    }
+
+    #[tokio::test]
+    async fn metrics_reflect_create_and_run() {
+        let app = test_app("metrics-create-run");
+
+        let before = fetch_metrics(&app).await;
+        assert_eq!(before["workflows_created"], 0);
+        assert_eq!(before["workflow_runs"], 0);
+
+        let ticket_json = r#"{
+            "id": "wf-metrics",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }"#;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let after_create = fetch_metrics(&app).await;
+        assert_eq!(after_create["workflows_created"], 1);
+        assert_eq!(after_create["workflow_runs"], 0);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-metrics/run")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let after_run = fetch_metrics(&app).await;
+        assert_eq!(after_run["workflows_created"], 1);
+        assert_eq!(after_run["workflow_runs"], 1);
+    }
+
+    #[tokio::test]
+    async fn metrics_workflows_waiting_gauge() {
+        let app = test_app("metrics-waiting");
+
+        let ticket_json = r#"{
+            "id": "wf-metrics-wait",
+            "customer_id": "cust@example.com",
+            "subject": "Need help",
+            "body": "Just saying hello"
+        }"#;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows/wf-metrics-wait/run")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        poll_status(&app, "wf-metrics-wait", "waiting", 200).await;
+
+        let metrics = fetch_metrics(&app).await;
+        assert_eq!(metrics["workflows_waiting"], 1);
     }
 }

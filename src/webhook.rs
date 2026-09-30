@@ -157,7 +157,7 @@ pub async fn agentmail_webhook(
         .correlations
         .is_webhook_processed(&svix_id)
         .map_err(|e| {
-            eprintln!("processed_webhooks check failed: {e}");
+            tracing::error!(error = %e, "processed_webhooks check failed");
             StatusCode::INTERNAL_SERVER_ERROR
         })?
     {
@@ -165,7 +165,7 @@ pub async fn agentmail_webhook(
     }
 
     let payload: AgentMailWebhook = serde_json::from_slice(&body).map_err(|e| {
-        eprintln!("agentmail webhook json parse failed: {e}");
+        tracing::error!(error = %e, "agentmail webhook json parse failed");
         StatusCode::BAD_REQUEST
     })?;
 
@@ -185,7 +185,7 @@ pub async fn agentmail_webhook(
 
     let Some((workflow_id, step_index)) =
         state.correlations.lookup(&correlation_key).map_err(|e| {
-            eprintln!("correlation lookup failed: {e}");
+            tracing::error!(error = %e, "correlation lookup failed");
             StatusCode::INTERNAL_SERVER_ERROR
         })?
     else {
@@ -195,15 +195,26 @@ pub async fn agentmail_webhook(
     let reply_text = message.text.as_deref().unwrap_or("");
     let input = resume_input_from_reply(reply_text);
 
+    state.metrics.inc_webhooks_processed();
     let resume_result = state.engine.resume(&workflow_id, step_index, input).await;
 
     match resume_result {
         Ok(()) => {}
         Err(e) if resume_error_is_benign(&e) => {
-            eprintln!("agentmail webhook resume benign no-op for {workflow_id}: {e}");
+            tracing::warn!(
+                workflow_id = %workflow_id,
+                step_index,
+                error = %e,
+                "agentmail webhook resume benign no-op"
+            );
         }
         Err(e) => {
-            eprintln!("agentmail webhook resume failed for {workflow_id}: {e}");
+            tracing::error!(
+                workflow_id = %workflow_id,
+                step_index,
+                error = %e,
+                "agentmail webhook resume failed"
+            );
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     }
@@ -212,7 +223,7 @@ pub async fn agentmail_webhook(
         .correlations
         .mark_webhook_processed(&svix_id)
         .map_err(|e| {
-            eprintln!("mark_webhook_processed failed: {e}");
+            tracing::error!(error = %e, "mark_webhook_processed failed");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
