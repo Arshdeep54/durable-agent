@@ -15,6 +15,35 @@ impl std::fmt::Display for ApprovalError {
 
 impl std::error::Error for ApprovalError {}
 
+pub trait CustomerMailer: Send + Sync {
+    fn send_reply(
+        &self,
+        to: &str,
+        subject: &str,
+        text: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ApprovalError>> + Send>>;
+}
+
+#[derive(Debug, Default)]
+pub struct MockCustomerMailer;
+
+impl CustomerMailer for MockCustomerMailer {
+    fn send_reply(
+        &self,
+        to: &str,
+        subject: &str,
+        text: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ApprovalError>> + Send>> {
+        let to = to.to_string();
+        let subject = subject.to_string();
+        let text = text.to_string();
+        Box::pin(async move {
+            println!("reply to {to} ({subject}): {text}");
+            Ok(())
+        })
+    }
+}
+
 pub trait ApprovalSender: Send + Sync {
     fn request_approval(
         &self,
@@ -41,6 +70,7 @@ impl ApprovalSender for MockApprovalSender {
     }
 }
 
+#[derive(Clone)]
 pub struct AgentMailSender {
     api_key: String,
     from_address: String,
@@ -92,6 +122,21 @@ impl AgentMailSender {
     }
 }
 
+impl CustomerMailer for AgentMailSender {
+    fn send_reply(
+        &self,
+        to: &str,
+        subject: &str,
+        text: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ApprovalError>> + Send>> {
+        let this = self.clone();
+        let to = to.to_string();
+        let subject = subject.to_string();
+        let text = text.to_string();
+        Box::pin(async move { this.send(&to, &subject, &text).await })
+    }
+}
+
 impl ApprovalSender for AgentMailSender {
     fn request_approval(
         &self,
@@ -102,12 +147,7 @@ impl ApprovalSender for AgentMailSender {
         let ticket_subject = ticket.subject.clone();
         let draft = draft_reply.to_string();
         let to_address = self.to_address.clone();
-        let sender = AgentMailSender {
-            api_key: self.api_key.clone(),
-            from_address: self.from_address.clone(),
-            to_address: self.to_address.clone(),
-            client: self.client.clone(),
-        };
+        let sender = self.clone();
 
         Box::pin(async move {
             let subject = format!("Approval needed: ticket {ticket_id}");
