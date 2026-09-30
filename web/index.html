@@ -31,7 +31,7 @@ body{
   margin:0; padding-inline:16px; padding-block:28px;
   -webkit-font-smoothing:antialiased;
 }
-.wrap{max-width:900px; margin:0 auto; display:flex; flex-direction:column; gap:22px;}
+.wrap{max-width:1100px; margin:0 auto; display:flex; flex-direction:column; gap:22px;}
 
 /* header */
 header{display:flex; flex-direction:column; gap:12px;}
@@ -44,7 +44,28 @@ h1{font-size:1.3rem; font-weight:700; margin:0; letter-spacing:-0.01em;}
 .status-running{background:var(--accent-soft); color:var(--accent);}
 .status-waiting{background:var(--warn-soft); color:var(--warn);}
 .status-done{background:var(--accent-soft); color:var(--accent);}
+.status-cancelled{background:var(--surface-2); color:var(--muted); border:1px solid var(--border);}
 .intro{color:var(--muted); font-size:0.92rem; line-height:1.55; max-width:64ch; margin:0;}
+
+.create-form{display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-top:4px;}
+.create-form label{display:flex; flex-direction:column; gap:4px; font-size:0.72rem; font-weight:600; color:var(--muted); flex:1; min-width:120px;}
+.create-form input{font-family:var(--mono); font-size:0.78rem; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface);}
+.reject-row{display:flex; gap:8px; flex-wrap:wrap; align-items:center; width:100%;}
+.reject-row input{flex:1; min-width:140px; font-family:var(--sans); font-size:0.85rem; padding:9px 12px; border:1px solid var(--border); border-radius:9px;}
+.cancelled-note{font-size:0.82rem; color:var(--muted); margin:0; font-style:italic;}
+
+.main-grid{display:grid; grid-template-columns:minmax(200px,240px) 1fr; gap:20px; align-items:start;}
+@media (max-width:780px){.main-grid{grid-template-columns:1fr}}
+
+.wf-list-panel{display:flex; flex-direction:column; gap:8px; max-height:420px; overflow-y:auto;}
+.wf-row{display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:9px; border:1px solid var(--border); background:var(--surface); cursor:pointer; transition:background .15s, border-color .15s;}
+.wf-row:hover{background:var(--surface-2);}
+.wf-row.selected{border-color:var(--accent); background:var(--accent-soft);}
+.wf-row-id{font-family:var(--mono); font-size:0.72rem; word-break:break-all;}
+.wf-row .status-pill{align-self:flex-start; font-size:0.68rem; padding:3px 8px;}
+.wf-list-empty{font-size:0.82rem; color:var(--muted); font-style:italic;}
+
+.strip.metrics .card .v{font-family:var(--mono); font-size:1.35rem; font-weight:600; color:var(--fg); margin-top:6px; line-height:1;}
 
 .controls{display:flex; gap:8px; flex-wrap:wrap;}
 button{
@@ -83,6 +104,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
 .tl{display:flex; flex-direction:column;}
 .step{display:flex; gap:12px; padding-block:10px; border-radius:8px; transition:background .2s;}
 .step.active-crash{background:var(--danger-soft);}
+.step.failed .step-name{color:var(--danger);}
 .step-icon{flex:none; width:22px; height:22px; margin-top:1px; position:relative;}
 .step-icon svg{width:100%; height:100%; display:block;}
 .step-main{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;}
@@ -96,6 +118,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
 .ring.running{stroke:var(--accent); stroke-dasharray:10 8; animation:spin 1s linear infinite;}
 .ring.waiting{stroke:var(--warn);}
 .ring.crashed{stroke:var(--danger);}
+.ring.failed{stroke:var(--danger);}
 .check{stroke:var(--accent); stroke-width:2.4; fill:none; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:20; stroke-dashoffset:20; transition:stroke-dashoffset .35s ease;}
 .check.drawn{stroke-dashoffset:0;}
 .hourglass{transform-origin:50% 50%; animation:tip 2.6s ease-in-out infinite;}
@@ -130,29 +153,56 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
   <header>
     <div class="title-row">
       <h1>Durable Agent Console</h1>
-      <span class="wf-id">ticket-4821</span>
+      <span class="wf-id" id="wfIdDisplay">—</span>
       <span class="status-pill status-idle" id="statusPill"><span class="dot"></span><span id="statusText">Idle</span></span>
     </div>
-    <p class="intro">A durable execution engine for AI agent workflows, built on agentq. Run the workflow below, then kill the worker mid-step — it recovers without re-running finished work.</p>
+    <p class="intro">A durable execution engine for AI agent workflows, built on agentq. Create workflows, switch between them in the list, and drive approve, reject, cancel, and dev kill against the real API.</p>
+    <form class="create-form" id="createForm" onsubmit="return false;">
+      <label>Workflow id<input type="text" id="inputWfId" placeholder="auto if empty"></label>
+      <label>Customer<input type="text" id="inputCustomer" value="customer@example.com"></label>
+      <label>Subject<input type="text" id="inputSubject" value="Need help"></label>
+      <label>Body<input type="text" id="inputBody" value="Just saying hello"></label>
+    </form>
     <div class="controls">
-      <button class="btn-primary" id="runBtn">Run workflow</button>
+      <button class="btn-primary" id="runBtn" type="button">Create &amp; run</button>
+      <button class="btn-danger" id="cancelBtn" disabled hidden>Cancel workflow</button>
       <button class="btn-danger" id="killBtn" disabled>Kill worker<span class="dev-tag">dev only</span></button>
       <button class="btn-primary" id="approveBtn" disabled hidden>Approve reply</button>
-      <button class="btn-ghost" id="resetBtn">Reset</button>
+      <div class="reject-row" id="rejectRow" hidden>
+        <input type="text" id="rejectReason" placeholder="Rejection reason (optional)">
+        <button class="btn-danger" id="rejectBtn" type="button">Reject reply</button>
+      </div>
+      <button class="btn-ghost" id="resetBtn" type="button">Reset view</button>
     </div>
     <div class="banner banner-crash" id="crashBanner">Worker killed — no event recorded. The step's lease will expire in a moment.</div>
     <div class="banner banner-recover" id="recoverBanner">Expired lease found. Re-admitting the step as a new attempt — earlier steps are not re-run.</div>
   </header>
 
-  <div class="body-grid">
+  <div class="strip metrics" id="metricsStrip">
+    <div class="card"><div class="k">Created</div><div class="v" id="mCreated">—</div></div>
+    <div class="card"><div class="k">Runs</div><div class="v" id="mRuns">—</div></div>
+    <div class="card"><div class="k">Waiting</div><div class="v" id="mWaiting">—</div></div>
+    <div class="card"><div class="k">Approvals</div><div class="v" id="mApprovals">—</div></div>
+    <div class="card"><div class="k">Rejections</div><div class="v" id="mRejections">—</div></div>
+    <div class="card"><div class="k">Cancellations</div><div class="v" id="mCancellations">—</div></div>
+  </div>
+
+  <div class="main-grid">
+    <section class="panel">
+      <h2>Workflows</h2>
+      <div class="wf-list-panel" id="wfList"><div class="wf-list-empty">No workflows yet.</div></div>
+    </section>
+    <div class="body-grid">
     <section class="panel">
       <h2>Step timeline</h2>
+      <p class="cancelled-note" id="cancelledNote" hidden>Workflow cancelled — timeline frozen at last recorded state.</p>
       <div class="tl" id="timeline"></div>
     </section>
     <section class="panel">
       <h2>Event log</h2>
-      <div class="log" id="log"><div class="log-empty">No events yet. Run the workflow to start.</div></div>
+      <div class="log" id="log"><div class="log-empty">Select or create a workflow to start.</div></div>
     </section>
+    </div>
   </div>
 
   <div class="strip">
@@ -178,17 +228,32 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
   var runBtn = document.getElementById('runBtn');
   var killBtn = document.getElementById('killBtn');
   var approveBtn = document.getElementById('approveBtn');
+  var rejectBtn = document.getElementById('rejectBtn');
+  var rejectRow = document.getElementById('rejectRow');
+  var rejectReason = document.getElementById('rejectReason');
+  var cancelBtn = document.getElementById('cancelBtn');
   var resetBtn = document.getElementById('resetBtn');
+  var wfIdDisplay = document.getElementById('wfIdDisplay');
+  var wfListEl = document.getElementById('wfList');
+  var cancelledNote = document.getElementById('cancelledNote');
+  var inputWfId = document.getElementById('inputWfId');
+  var inputCustomer = document.getElementById('inputCustomer');
+  var inputSubject = document.getElementById('inputSubject');
+  var inputBody = document.getElementById('inputBody');
   var crashBanner = document.getElementById('crashBanner');
   var recoverBanner = document.getElementById('recoverBanner');
   var statusPill = document.getElementById('statusPill');
   var statusText = document.getElementById('statusText');
   var bannerTimers = [];
-  var startTime = null;
+  var startTime = Date.now();
   var currentWorkflowId = null;
   var pollTimer = null;
+  var listTimer = null;
   var loggedEventCount = 0;
   var workerRecoveredSeen = 0;
+  var workflowCancelledFlag = false;
+  var listStatusCache = {};
+  var workflowIdList = [];
 
   function clock(){
     var s = Math.floor((Date.now() - startTime) / 1000);
@@ -200,6 +265,9 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
 
   function eventKey(ev){ return Object.keys(ev)[0]; }
   function eventPayload(ev){ return ev[eventKey(ev)]; }
+  function escHtml(s){
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  }
 
   function showRecoveryBanners(){
     crashBanner.classList.add('show');
@@ -211,6 +279,14 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
   }
 
   function foldEvents(events){
+    var workflowFailed = false;
+    var workflowCancelled = false;
+    for(var w = 0; w < events.length; w++){
+      var wk = eventKey(events[w]);
+      if(wk === 'WorkflowFailed') workflowFailed = true;
+      if(wk === 'WorkflowCancelled') workflowCancelled = true;
+    }
+    workflowCancelledFlag = workflowCancelled;
     var next = steps.map(function(){ return {status:'pending', attempt:0}; });
     var failedAt = steps.map(function(){ return -1; });
     for(var ei = 0; ei < events.length; ei++){
@@ -247,12 +323,16 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
       for(var ej = failedAt[i] + 1; ej < events.length; ej++){
         var k = eventKey(events[ej]);
         var pl = eventPayload(events[ej]);
+        if(k === 'StepCompleted' && pl.step_index === i){
+          recovered = true;
+          break;
+        }
         if((k === 'RetryScheduled' || k === 'WorkerRecovered') && pl.step_index === i){
           recovered = true;
           break;
         }
       }
-      if(!recovered) next[i].status = 'crashed';
+      if(!recovered) next[i].status = workflowFailed ? 'failed' : 'crashed';
     }
     return next;
   }
@@ -274,6 +354,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     if(key === 'WorkerRecovered') return {tag:'WorkerRecovered', cls:'warn', msg:'stale lease found for ' + steps[p.step_index].name + ' — re-admitting'};
     if(key === 'WorkflowCompleted') return {tag:'WorkflowCompleted', cls:'ok', msg:(p.workflow_id || currentWorkflowId || '') + ' resolved end to end'};
     if(key === 'WorkflowFailed') return {tag:'WorkflowFailed', cls:'err', msg:p.reason};
+    if(key === 'WorkflowCancelled') return {tag:'WorkflowCancelled', cls:'warn', msg:(p.reason || 'cancelled') + (p.workflow_id ? ' · ' + p.workflow_id : '')};
     return {tag:key, cls:'info', msg:''};
   }
 
@@ -296,6 +377,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     }
     state = foldEvents(events);
     killBtn.disabled = state[1].status !== 'running';
+    cancelledNote.hidden = !workflowCancelledFlag;
     render();
     syncEventLog(events);
   }
@@ -305,6 +387,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     if(status==='running') return '<svg viewBox="0 0 24 24"><circle class="ring running" cx="12" cy="12" r="10"/></svg>';
     if(status==='waiting') return '<svg viewBox="0 0 24 24"><circle class="ring waiting" cx="12" cy="12" r="10"/><g class="hourglass"><path d="M9 7h6M9 17h6M9 7c0 3 6 3 6 0M9 17c0-3 6-3 6 0" stroke="var(--warn)" stroke-width="1.4" fill="none" stroke-linecap="round"/></g></svg>';
     if(status==='crashed') return '<svg viewBox="0 0 24 24"><circle class="ring crashed" cx="12" cy="12" r="10"/><path d="M9 9l6 6M15 9l-6 6" stroke="var(--danger)" stroke-width="2" stroke-linecap="round"/></svg>';
+    if(status==='failed') return '<svg viewBox="0 0 24 24"><circle class="ring failed" cx="12" cy="12" r="10"/><path d="M8 8l8 8M16 8l-8 8" stroke="var(--danger)" stroke-width="2.2" stroke-linecap="round"/></svg>';
     return '<svg viewBox="0 0 24 24"><circle class="ring" cx="12" cy="12" r="10"/></svg>';
   }
 
@@ -313,6 +396,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     if(s.status==='pending') return steps[i].sub;
     if(s.status==='running') return steps[i].sub + (s.attempt>1 ? ' · attempt '+s.attempt : ' · running');
     if(s.status==='crashed') return 'lease expiring…';
+    if(s.status==='failed') return 'failed permanently';
     if(s.status==='waiting') return 'waiting for input';
     if(s.status==='completed') return steps[i].sub + ' · done';
     return steps[i].sub;
@@ -321,7 +405,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
   function render(){
     timelineEl.innerHTML = steps.map(function(step, i){
       var s = state[i];
-      var cls = 'step ' + s.status + (s.status==='crashed' ? ' active-crash' : '');
+      var cls = 'step ' + s.status + (s.status==='crashed' ? ' active-crash' : '') + (s.status==='failed' ? ' failed' : '');
       var connector = i < steps.length-1 ? '<div class="connector" style="margin-left:11px"></div>' : '';
       return '<div class="'+cls+'"><div class="step-icon">'+icon(s.status)+'</div>'+
              '<div class="step-main"><div class="step-name">'+step.name+'</div><div class="step-sub">'+subText(i)+'</div></div></div>'+connector;
@@ -342,6 +426,97 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     statusText.textContent = text;
   }
 
+  function statusPillHtml(status){
+    var kind = 'idle';
+    var label = status;
+    if(status === 'pending'){ kind = 'idle'; label = 'pending'; }
+    else if(status === 'running'){ kind = 'running'; label = 'running'; }
+    else if(status === 'waiting'){ kind = 'waiting'; label = 'waiting'; }
+    else if(status === 'completed'){ kind = 'done'; label = 'done'; }
+    else if(status === 'cancelled'){ kind = 'cancelled'; label = 'cancelled'; }
+    else if(status === 'failed'){ kind = 'idle'; label = 'failed'; }
+    return '<span class="status-pill status-'+kind+'"><span class="dot"></span>'+label+'</span>';
+  }
+
+  function refreshMetrics(){
+    fetch('/metrics')
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(); })
+      .then(function(m){
+        document.getElementById('mCreated').textContent = m.workflows_created;
+        document.getElementById('mRuns').textContent = m.workflow_runs;
+        document.getElementById('mWaiting').textContent = m.workflows_waiting;
+        document.getElementById('mApprovals').textContent = m.approvals;
+        document.getElementById('mRejections').textContent = m.rejections;
+        document.getElementById('mCancellations').textContent = m.cancellations;
+      })
+      .catch(function(){});
+  }
+
+  function renderWorkflowList(ids){
+    if(!ids.length){
+      wfListEl.innerHTML = '<div class="wf-list-empty">No workflows yet.</div>';
+      return;
+    }
+    wfListEl.innerHTML = ids.map(function(id){
+      var st = listStatusCache[id] || 'pending';
+      var sel = id === currentWorkflowId ? ' selected' : '';
+      var safe = escHtml(id);
+      return '<div class="wf-row'+sel+'" data-wf-id="'+safe+'">'+
+        '<span class="wf-row-id">'+safe+'</span>'+statusPillHtml(st)+'</div>';
+    }).join('');
+    wfListEl.querySelectorAll('.wf-row').forEach(function(row){
+      row.addEventListener('click', function(){
+        selectWorkflow(row.getAttribute('data-wf-id'));
+      });
+    });
+  }
+
+  function refreshWorkflowList(){
+    return fetch('/workflows')
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function(ids){
+        if(!ids.length){
+          listStatusCache = {};
+          workflowIdList = [];
+          renderWorkflowList([]);
+          return;
+        }
+        workflowIdList = ids.slice();
+        return Promise.all(ids.map(function(id){
+          return fetch('/workflows/' + encodeURIComponent(id))
+            .then(function(r){ return r.ok ? r.json() : null; })
+            .then(function(rec){
+              if(rec) listStatusCache[id] = rec.status;
+              return id;
+            });
+        })).then(function(){ renderWorkflowList(ids); });
+      })
+      .then(function(){ refreshMetrics(); })
+      .catch(function(){});
+  }
+
+  function selectWorkflow(id){
+    if(!id || id === currentWorkflowId) return;
+    stopPolling();
+    currentWorkflowId = id;
+    wfIdDisplay.textContent = id;
+    loggedEventCount = 0;
+    workerRecoveredSeen = 0;
+    workflowCancelledFlag = false;
+    state = steps.map(function(){ return {status:'pending', attempt:0}; });
+    logEl.innerHTML = '<div class="log-empty">Loading events…</div>';
+    cancelledNote.hidden = true;
+    crashBanner.classList.remove('show');
+    recoverBanner.classList.remove('show');
+    refreshWorkflowList().then(function(){
+      return pollWorkflow();
+    }).then(function(){
+      startPolling();
+    }).catch(function(){
+      log('Error','warn','failed to load workflow');
+    });
+  }
+
   function stopPolling(){
     if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
   }
@@ -356,7 +531,12 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
         return fetch('/workflows/' + encodeURIComponent(id) + '/events');
       })
       .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function(events){ applyEvents(events); });
+      .then(function(events){
+        applyEvents(events);
+        if(currentWorkflowId === id && workflowIdList.length){
+          renderWorkflowList(workflowIdList);
+        }
+      });
   }
 
   function startPolling(){
@@ -364,6 +544,13 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     pollTimer = setInterval(function(){
       pollWorkflow().catch(function(){});
     }, 800);
+  }
+
+  function startListPolling(){
+    if(listTimer) return;
+    listTimer = setInterval(function(){
+      refreshWorkflowList().catch(function(){});
+    }, 2400);
   }
 
   function apiPost(url, body){
@@ -378,20 +565,31 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
   }
 
   function applyWorkflowStatus(status){
+    if(currentWorkflowId) listStatusCache[currentWorkflowId] = status;
     if(status === 'pending'){
-      setStatus('idle','Idle');
+      setStatus('idle','Pending');
       approveBtn.hidden = true;
+      rejectRow.hidden = true;
+      cancelBtn.hidden = true;
+      cancelBtn.disabled = true;
       return;
     }
     if(status === 'running'){
       setStatus('running','Running');
       approveBtn.hidden = true;
+      rejectRow.hidden = true;
+      cancelBtn.hidden = false;
+      cancelBtn.disabled = false;
       return;
     }
     if(status === 'waiting'){
       setStatus('waiting','Waiting for approval');
       approveBtn.hidden = false;
       approveBtn.disabled = false;
+      rejectRow.hidden = false;
+      rejectBtn.disabled = false;
+      cancelBtn.hidden = false;
+      cancelBtn.disabled = false;
       killBtn.disabled = true;
       return;
     }
@@ -399,14 +597,30 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
       stopPolling();
       setStatus('done','Completed');
       approveBtn.hidden = true;
+      rejectRow.hidden = true;
+      cancelBtn.hidden = true;
       killBtn.disabled = true;
+      refreshWorkflowList();
+      return;
+    }
+    if(status === 'cancelled'){
+      stopPolling();
+      setStatus('cancelled','Cancelled');
+      approveBtn.hidden = true;
+      rejectRow.hidden = true;
+      cancelBtn.hidden = true;
+      killBtn.disabled = true;
+      refreshWorkflowList();
       return;
     }
     if(status === 'failed'){
       stopPolling();
       setStatus('idle','Failed');
       approveBtn.hidden = true;
+      rejectRow.hidden = true;
+      cancelBtn.hidden = true;
       killBtn.disabled = true;
+      refreshWorkflowList();
     }
   }
 
@@ -414,44 +628,62 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     clearBannerTimers();
     stopPolling();
     currentWorkflowId = null;
+    wfIdDisplay.textContent = '—';
     loggedEventCount = 0;
     workerRecoveredSeen = 0;
+    workflowCancelledFlag = false;
     state = steps.map(function(){ return {status:'pending', attempt:0}; });
-    logEl.innerHTML = '<div class="log-empty">No events yet. Run the workflow to start.</div>';
+    logEl.innerHTML = '<div class="log-empty">Select or create a workflow to start.</div>';
     setStatus('idle','Idle');
     runBtn.disabled = false;
     killBtn.disabled = true;
     approveBtn.hidden = true;
+    rejectRow.hidden = true;
+    cancelBtn.hidden = true;
+    cancelBtn.disabled = true;
+    cancelledNote.hidden = true;
     crashBanner.classList.remove('show');
     recoverBanner.classList.remove('show');
     render();
+    refreshWorkflowList();
   }
 
   runBtn.addEventListener('click', function(){
     runBtn.disabled = true;
-    currentWorkflowId = 'ticket-' + Date.now();
+    var id = (inputWfId.value || '').trim();
+    if(!id) id = 'ticket-' + Date.now();
+    currentWorkflowId = id;
+    wfIdDisplay.textContent = id;
     startTime = Date.now();
     loggedEventCount = 0;
     workerRecoveredSeen = 0;
+    workflowCancelledFlag = false;
     logEl.innerHTML = '';
+    cancelledNote.hidden = true;
     apiPost('/workflows', {
-      id: currentWorkflowId,
-      customer_id: 'customer@example.com',
-      subject: 'Need help',
-      body: 'Just saying hello'
+      id: id,
+      customer_id: inputCustomer.value || 'customer@example.com',
+      subject: inputSubject.value || 'Need help',
+      body: inputBody.value || 'Just saying hello'
     })
       .then(function(){
-        return fetch('/workflows/' + encodeURIComponent(currentWorkflowId) + '/run', {method:'POST'});
+        listStatusCache[id] = 'pending';
+        return fetch('/workflows/' + encodeURIComponent(id) + '/run', {method:'POST'});
       })
       .then(function(r){
         if(!r.ok) return Promise.reject(r.status);
         startPolling();
-        return pollWorkflow();
+        startListPolling();
+        return refreshWorkflowList().then(function(){ return pollWorkflow(); });
+      })
+      .then(function(){
+        runBtn.disabled = false;
       })
       .catch(function(){
         log('Error','warn','failed to start workflow');
         runBtn.disabled = false;
         currentWorkflowId = null;
+        wfIdDisplay.textContent = '—';
       });
   });
 
@@ -465,6 +697,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
     if(!currentWorkflowId) return;
     approveBtn.disabled = true;
     approveBtn.hidden = true;
+    rejectRow.hidden = true;
     fetch('/workflows/' + encodeURIComponent(currentWorkflowId) + '/approve', {
       method: 'POST',
       body: 'approved reply text'
@@ -472,17 +705,63 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
       .then(function(r){
         if(!r.ok) return Promise.reject(r.status);
         log('ApprovalReceived','ok','human approved the drafted reply');
+        refreshMetrics();
         return pollWorkflow();
       })
       .catch(function(){
         log('Error','warn','approve failed');
         approveBtn.hidden = false;
         approveBtn.disabled = false;
+        rejectRow.hidden = false;
+      });
+  });
+
+  rejectBtn.addEventListener('click', function(){
+    if(!currentWorkflowId) return;
+    rejectBtn.disabled = true;
+    var reason = rejectReason.value || '';
+    fetch('/workflows/' + encodeURIComponent(currentWorkflowId) + '/reject', {
+      method: 'POST',
+      body: reason
+    })
+      .then(function(r){
+        if(!r.ok) return Promise.reject(r.status);
+        log('RejectionReceived','warn','human rejected the drafted reply');
+        rejectRow.hidden = true;
+        approveBtn.hidden = true;
+        refreshMetrics();
+        return pollWorkflow();
+      })
+      .catch(function(){
+        log('Error','warn','reject failed');
+        rejectBtn.disabled = false;
+      });
+  });
+
+  cancelBtn.addEventListener('click', function(){
+    if(!currentWorkflowId) return;
+    cancelBtn.disabled = true;
+    fetch('/workflows/' + encodeURIComponent(currentWorkflowId) + '/cancel', {
+      method: 'POST',
+      body: 'cancelled from console'
+    })
+      .then(function(r){
+        if(!r.ok) return Promise.reject(r.status);
+        log('CancelRequested','warn','cancel sent to engine');
+        refreshMetrics();
+        return pollWorkflow();
+      })
+      .catch(function(){
+        log('Error','warn','cancel failed');
+        cancelBtn.disabled = false;
       });
   });
 
   resetBtn.addEventListener('click', reset);
 
   render();
+  refreshWorkflowList();
+  startListPolling();
+  refreshMetrics();
 })();
 </script>
