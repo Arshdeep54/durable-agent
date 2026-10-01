@@ -631,15 +631,122 @@ async fn run_workflow(
     Ok(StatusCode::ACCEPTED)
 }
 
+fn event_to_json(event: &Event) -> serde_json::Value {
+    match event {
+        Event::WorkflowStarted { workflow_id } => serde_json::json!({
+            "WorkflowStarted": { "workflow_id": workflow_id }
+        }),
+        Event::StepStarted {
+            workflow_id,
+            step_index,
+            attempt,
+        } => serde_json::json!({
+            "StepStarted": {
+                "workflow_id": workflow_id,
+                "step_index": step_index,
+                "attempt": attempt,
+            }
+        }),
+        Event::StepCompleted {
+            workflow_id,
+            step_index,
+            output,
+        } => serde_json::json!({
+            "StepCompleted": {
+                "workflow_id": workflow_id,
+                "step_index": step_index,
+                "output": output,
+            }
+        }),
+        Event::StepFailed {
+            workflow_id,
+            step_index,
+            reason,
+        } => serde_json::json!({
+            "StepFailed": {
+                "workflow_id": workflow_id,
+                "step_index": step_index,
+                "reason": reason,
+            }
+        }),
+        Event::RetryScheduled {
+            workflow_id,
+            step_index,
+            attempt,
+        } => serde_json::json!({
+            "RetryScheduled": {
+                "workflow_id": workflow_id,
+                "step_index": step_index,
+                "attempt": attempt,
+            }
+        }),
+        Event::StepWaiting {
+            workflow_id,
+            step_index,
+            reason,
+        } => serde_json::json!({
+            "StepWaiting": {
+                "workflow_id": workflow_id,
+                "step_index": step_index,
+                "reason": reason,
+            }
+        }),
+        Event::StepResumed {
+            workflow_id,
+            step_index,
+        } => serde_json::json!({
+            "StepResumed": {
+                "workflow_id": workflow_id,
+                "step_index": step_index,
+            }
+        }),
+        Event::WorkflowCompleted { workflow_id } => serde_json::json!({
+            "WorkflowCompleted": { "workflow_id": workflow_id }
+        }),
+        Event::WorkflowFailed { workflow_id, reason } => serde_json::json!({
+            "WorkflowFailed": {
+                "workflow_id": workflow_id,
+                "reason": reason,
+            }
+        }),
+        Event::WorkflowCancelled { workflow_id, reason } => serde_json::json!({
+            "WorkflowCancelled": {
+                "workflow_id": workflow_id,
+                "reason": reason,
+            }
+        }),
+        Event::WorkerRecovered {
+            workflow_id,
+            step_index,
+        } => serde_json::json!({
+            "WorkerRecovered": {
+                "workflow_id": workflow_id,
+                "step_index": step_index,
+            }
+        }),
+    }
+}
+
 async fn workflow_events(
     State(state): State<ApiState>,
     Path(id): Path<String>,
-) -> Result<Json<Vec<Event>>, StatusCode> {
-    let events = state.reader_store.load_events(&id).map_err(|e| {
-        tracing::error!(workflow_id = %id, error = %e, "load_events failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    Ok(Json(events))
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let events_with_ts = state
+        .reader_store
+        .load_events_with_timestamps(&id)
+        .map_err(|e| {
+            tracing::error!(workflow_id = %id, error = %e, "load_events_with_timestamps failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let out = events_with_ts
+        .into_iter()
+        .map(|(event, ts_millis)| {
+            let mut value = event_to_json(&event);
+            value["ts_millis"] = serde_json::Value::from(ts_millis);
+            value
+        })
+        .collect();
+    Ok(Json(out))
 }
 
 fn waiting_step_index(reader_store: &SqliteStore, id: &str) -> Result<usize, StatusCode> {

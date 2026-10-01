@@ -732,10 +732,30 @@ body {
   filter: none;
 }
 
-.exec-graph-wrap {
+.detail-execution-layout {
   margin-top: var(--space-5);
   padding-top: var(--space-5);
   border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.detail-execution-layout.has-inspector-open {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-6);
+}
+
+.detail-execution-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.exec-graph-wrap {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
 .exec-graph-title {
@@ -881,6 +901,213 @@ body {
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
   text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.exec-step:hover {
+  border-color: var(--border-strong);
+}
+
+.exec-step--selected {
+  border-color: color-mix(in srgb, var(--running) 45%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--running) 10%, transparent);
+}
+
+.event-stream-wrap {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+
+.event-stream-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  margin: 0 0 var(--space-3);
+}
+
+.event-stream {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.event-stream-row {
+  display: grid;
+  grid-template-columns: 4.75rem 1.25rem 1fr auto;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: 3px 0;
+  color: var(--fg-secondary);
+}
+
+.event-stream-row--enter {
+  animation: event-stream-enter 0.38s ease-out;
+}
+
+@keyframes event-stream-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.event-stream-time {
+  color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.event-stream-marker {
+  text-align: center;
+  font-weight: 500;
+}
+
+.event-stream-marker.is-success {
+  color: var(--success);
+}
+
+.event-stream-marker.is-active {
+  color: var(--warning);
+}
+
+.event-stream-marker.is-error {
+  color: var(--error);
+}
+
+.event-stream-marker.is-muted {
+  color: var(--fg-secondary);
+  opacity: 0.75;
+}
+
+.event-stream-desc {
+  color: var(--fg);
+  min-width: 0;
+}
+
+.event-stream-duration {
+  color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.step-inspector {
+  flex: none;
+  width: 100%;
+  max-width: 300px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  padding: var(--space-4);
+  animation: step-inspector-enter 0.28s ease-out;
+}
+
+@keyframes step-inspector-enter {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.step-inspector-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.step-inspector-title {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  line-height: 1.35;
+}
+
+.step-inspector-close {
+  padding: 2px 8px;
+  font-size: 18px;
+  line-height: 1;
+  min-height: auto;
+}
+
+.step-inspector-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.step-inspector-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.step-inspector-label {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+}
+
+.step-inspector-value {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+.step-inspector-value.is-mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.step-inspector-pre {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.step-inspector-link {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--running);
+  text-decoration: none;
+}
+
+.step-inspector-link:hover {
+  text-decoration: underline;
 }
 
 .exec-step-name {
@@ -1212,6 +1439,22 @@ body {
   .workflow-status {
     justify-content: flex-start;
   }
+
+  .detail-execution-layout.has-inspector-open {
+    flex-direction: column;
+  }
+
+  .step-inspector {
+    max-width: none;
+    position: fixed;
+    left: var(--space-4);
+    right: var(--space-4);
+    bottom: var(--space-4);
+    z-index: 40;
+    max-height: 55vh;
+    overflow: auto;
+    box-shadow: 0 8px 32px rgba(20, 20, 19, 0.12);
+  }
 }
 </style>
 </head>
@@ -1303,9 +1546,24 @@ body {
             </div>
             <p class="approval-panel-error" id="approvalPanelError" hidden></p>
           </div>
-          <div class="exec-graph-wrap" id="execGraphWrap" hidden>
-            <h3 class="exec-graph-title">Execution</h3>
-            <ol class="exec-graph" id="execGraph" aria-label="Workflow execution graph"></ol>
+          <div class="detail-execution-layout" id="detailExecutionLayout" hidden>
+            <div class="detail-execution-main">
+              <div class="exec-graph-wrap" id="execGraphWrap" hidden>
+                <h3 class="exec-graph-title">Execution</h3>
+                <ol class="exec-graph" id="execGraph" aria-label="Workflow execution graph"></ol>
+              </div>
+              <div class="event-stream-wrap" id="eventStreamWrap" hidden>
+                <h3 class="event-stream-title">Events</h3>
+                <ol class="event-stream" id="eventStream" aria-live="polite"></ol>
+              </div>
+            </div>
+            <aside class="step-inspector" id="stepInspector" aria-labelledby="stepInspectorTitle" hidden>
+              <div class="step-inspector-header">
+                <h3 class="step-inspector-title" id="stepInspectorTitle"></h3>
+                <button type="button" class="btn btn-ghost step-inspector-close" id="btnCloseInspector" aria-label="Close inspector">×</button>
+              </div>
+              <div class="step-inspector-body" id="stepInspectorBody"></div>
+            </aside>
           </div>
         </div>
       </section>
@@ -1435,8 +1693,15 @@ body {
   var detailWorkflowError = document.getElementById('detailWorkflowError');
   var detailWorkflowErrorMsg = document.getElementById('detailWorkflowErrorMsg');
   var detailWorkflowRetry = document.getElementById('detailWorkflowRetry');
+  var detailExecutionLayout = document.getElementById('detailExecutionLayout');
   var execGraphWrap = document.getElementById('execGraphWrap');
   var execGraphEl = document.getElementById('execGraph');
+  var eventStreamWrap = document.getElementById('eventStreamWrap');
+  var eventStreamEl = document.getElementById('eventStream');
+  var stepInspector = document.getElementById('stepInspector');
+  var stepInspectorTitle = document.getElementById('stepInspectorTitle');
+  var stepInspectorBody = document.getElementById('stepInspectorBody');
+  var btnCloseInspector = document.getElementById('btnCloseInspector');
   var approvalPanel = document.getElementById('approvalPanel');
   var approvalReview = document.getElementById('approvalReview');
   var approvalPanelError = document.getElementById('approvalPanelError');
@@ -1461,6 +1726,10 @@ body {
   var lastDetailRenderKey = '';
   var lastRenderedStepStates = null;
   var lastRenderedEventCount = 0;
+  var lastRenderedStreamEventCount = 0;
+  var detailEventsCache = [];
+  var detailStepNamesCache = [];
+  var selectedStepIndex = null;
   var approvalActionInFlight = false;
   var lastApprovalReviewKey = '';
 
@@ -1605,11 +1874,337 @@ body {
     if (!raw || typeof raw !== 'object') {
       return null;
     }
-    var keys = Object.keys(raw);
+    var tsMillis = raw.ts_millis != null ? raw.ts_millis : null;
+    var keys = Object.keys(raw).filter(function (k) {
+      return k !== 'ts_millis';
+    });
     if (keys.length !== 1) {
       return null;
     }
-    return { kind: keys[0], payload: raw[keys[0]] };
+    return {
+      kind: keys[0],
+      payload: raw[keys[0]],
+      ts_millis: tsMillis
+    };
+  }
+
+  function respanTraceUrl(workflowId) {
+    var base = 'https://platform.respan.ai/platform/observability/requests';
+    if (!workflowId) {
+      return base;
+    }
+    return base + '?trace_unique_id=' + encodeURIComponent(workflowId);
+  }
+
+  function stepNameAt(stepNames, index) {
+    if (index == null || index < 0 || index >= stepNames.length) {
+      return null;
+    }
+    return stepNames[index];
+  }
+
+  function eventStreamMarker(kind) {
+    if (kind === 'StepCompleted' || kind === 'WorkflowCompleted') {
+      return { glyph: '✓', className: 'is-success' };
+    }
+    if (kind === 'StepFailed' || kind === 'WorkflowFailed') {
+      return { glyph: '×', className: 'is-error' };
+    }
+    if (
+      kind === 'StepWaiting' ||
+      kind === 'StepStarted' ||
+      kind === 'StepResumed' ||
+      kind === 'WorkerRecovered'
+    ) {
+      return { glyph: '●', className: 'is-active' };
+    }
+    return { glyph: '·', className: 'is-muted' };
+  }
+
+  function eventStreamDescription(u, stepNames) {
+    var name = stepNameAt(stepNames, eventStepIndex(u.kind, u.payload));
+    var stepLabel = name || 'Step';
+    switch (u.kind) {
+      case 'WorkflowStarted':
+        return 'Workflow started';
+      case 'WorkflowCompleted':
+        return 'Workflow completed';
+      case 'WorkflowFailed':
+        return 'Workflow failed';
+      case 'WorkflowCancelled':
+        return 'Workflow cancelled';
+      case 'StepStarted':
+        return stepLabel + ' started';
+      case 'StepCompleted':
+        return stepLabel + ' completed';
+      case 'StepFailed':
+        return stepLabel + ' failed';
+      case 'StepWaiting':
+        if (u.payload && u.payload.reason) {
+          var reason = String(u.payload.reason);
+          if (reason.toLowerCase().indexOf('approval') !== -1) {
+            return 'Approval requested';
+          }
+          return reason;
+        }
+        return stepLabel + ' waiting';
+      case 'StepResumed':
+        return stepLabel + ' resumed';
+      case 'RetryScheduled':
+        return stepLabel + ' retry scheduled';
+      case 'WorkerRecovered':
+        return stepLabel + ' worker recovered';
+      default:
+        return u.kind;
+    }
+  }
+
+  function stepDurationFromEvents(events, stepIndex) {
+    var startTs = null;
+    var endTs = null;
+    for (var i = 0; i < events.length; i++) {
+      var u = unwrapEvent(events[i]);
+      if (!u || u.payload == null || u.payload.step_index !== stepIndex) {
+        continue;
+      }
+      if (u.kind === 'StepStarted' || u.kind === 'StepResumed') {
+        if (u.ts_millis != null) {
+          startTs = u.ts_millis;
+        }
+      }
+      if (u.kind === 'StepCompleted' && u.ts_millis != null) {
+        endTs = u.ts_millis;
+      }
+    }
+    if (startTs == null || endTs == null || endTs < startTs) {
+      return null;
+    }
+    return endTs - startTs;
+  }
+
+  function stepAttemptFromEvents(events, stepIndex) {
+    var attempt = null;
+    for (var i = 0; i < events.length; i++) {
+      var u = unwrapEvent(events[i]);
+      if (!u || u.payload == null || u.payload.step_index !== stepIndex) {
+        continue;
+      }
+      if (u.kind === 'StepStarted' && u.payload.attempt != null) {
+        attempt = u.payload.attempt;
+      }
+      if (u.kind === 'RetryScheduled' && u.payload.attempt != null) {
+        attempt = u.payload.attempt;
+      }
+    }
+    if (attempt == null) {
+      return null;
+    }
+    return attempt + 1;
+  }
+
+  function stepInspectorFields(stepIndex, events, stepNames) {
+    var derived = deriveStepStates(events, stepNames.length);
+    var state = derived.states[stepIndex] || 'idle';
+    var fields = [];
+    fields.push({
+      label: 'Status',
+      value: STEP_STATE_LABELS[state] || state,
+      mono: false
+    });
+
+    var durationMs = stepDurationFromEvents(events, stepIndex);
+    if (durationMs != null) {
+      fields.push({
+        label: 'Duration',
+        value: formatDetailDurationMs(durationMs),
+        mono: true
+      });
+    }
+
+    var attempt = stepAttemptFromEvents(events, stepIndex);
+    if (attempt != null) {
+      fields.push({
+        label: 'Attempt',
+        value: String(attempt),
+        mono: true
+      });
+    }
+
+    var output = stepCompletedOutput(events, stepIndex);
+    if (output) {
+      fields.push({
+        label: 'Output',
+        value: output,
+        pre: true
+      });
+    }
+
+    for (var i = events.length - 1; i >= 0; i--) {
+      var u = unwrapEvent(events[i]);
+      if (!u || u.payload == null || u.payload.step_index !== stepIndex) {
+        continue;
+      }
+      if (u.kind === 'StepFailed' && u.payload.reason) {
+        fields.push({
+          label: 'Error',
+          value: u.payload.reason,
+          pre: true
+        });
+        break;
+      }
+    }
+
+    for (var j = events.length - 1; j >= 0; j--) {
+      var w = unwrapEvent(events[j]);
+      if (!w || w.payload == null || w.payload.step_index !== stepIndex) {
+        continue;
+      }
+      if (w.kind === 'StepWaiting' && w.payload.reason) {
+        fields.push({
+          label: 'Reason',
+          value: w.payload.reason,
+          pre: false
+        });
+        break;
+      }
+    }
+
+    return { state: state, fields: fields };
+  }
+
+  function closeStepInspector() {
+    selectedStepIndex = null;
+    stepInspector.hidden = true;
+    detailExecutionLayout.classList.remove('has-inspector-open');
+    var steps = execGraphEl.querySelectorAll('.exec-step--selected');
+    steps.forEach(function (el) {
+      el.classList.remove('exec-step--selected');
+    });
+  }
+
+  function renderStepInspector(stepIndex, events, stepNames, workflowId) {
+    if (stepIndex == null || stepIndex < 0 || stepIndex >= stepNames.length) {
+      closeStepInspector();
+      return;
+    }
+    selectedStepIndex = stepIndex;
+    var stepName = stepNames[stepIndex];
+    stepInspectorTitle.textContent = stepName.replace(/([a-z])([A-Z])/g, '$1 $2');
+    stepInspectorBody.innerHTML = '';
+
+    var info = stepInspectorFields(stepIndex, events, stepNames);
+    info.fields.forEach(function (field) {
+      var block = document.createElement('div');
+      block.className = 'step-inspector-field';
+      var label = document.createElement('p');
+      label.className = 'step-inspector-label';
+      label.textContent = field.label;
+      block.appendChild(label);
+      if (field.pre) {
+        var pre = document.createElement('pre');
+        pre.className = 'step-inspector-pre';
+        pre.textContent = field.value;
+        block.appendChild(pre);
+      } else {
+        var val = document.createElement('p');
+        val.className = 'step-inspector-value' + (field.mono ? ' is-mono' : '');
+        val.textContent = field.value;
+        block.appendChild(val);
+      }
+      stepInspectorBody.appendChild(block);
+    });
+
+    if (stepName === 'ClassifyTicket') {
+      var traceBlock = document.createElement('div');
+      traceBlock.className = 'step-inspector-field';
+      var traceLabel = document.createElement('p');
+      traceLabel.className = 'step-inspector-label';
+      traceLabel.textContent = 'Trace';
+      var link = document.createElement('a');
+      link.className = 'step-inspector-link';
+      link.href = respanTraceUrl(workflowId);
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = 'Open in Respan ↗';
+      traceBlock.appendChild(traceLabel);
+      traceBlock.appendChild(link);
+      stepInspectorBody.appendChild(traceBlock);
+    }
+
+    stepInspector.hidden = false;
+    detailExecutionLayout.classList.add('has-inspector-open');
+
+    execGraphEl.querySelectorAll('.exec-step').forEach(function (el) {
+      var idx = parseInt(el.getAttribute('data-step-index'), 10);
+      el.classList.toggle('exec-step--selected', idx === stepIndex);
+    });
+  }
+
+  function selectStep(stepIndex) {
+    if (!detailStepNamesCache.length) {
+      return;
+    }
+    renderStepInspector(
+      stepIndex,
+      detailEventsCache,
+      detailStepNamesCache,
+      detailWorkflowIdCurrent
+    );
+  }
+
+  function updateEventStream(events, stepNames) {
+    if (!eventStreamEl) {
+      return;
+    }
+    var prevCount = lastRenderedStreamEventCount;
+    var fullRebuild = prevCount === 0 || events.length < prevCount;
+
+    if (fullRebuild) {
+      eventStreamEl.innerHTML = '';
+    }
+
+    for (var i = fullRebuild ? 0 : prevCount; i < events.length; i++) {
+      var u = unwrapEvent(events[i]);
+      if (!u) {
+        continue;
+      }
+      var li = document.createElement('li');
+      li.className = 'event-stream-row';
+      if (i >= prevCount && prevCount > 0) {
+        li.classList.add('event-stream-row--enter');
+      }
+
+      var time = document.createElement('span');
+      time.className = 'event-stream-time';
+      time.textContent =
+        u.ts_millis != null ? formatStartedClock(u.ts_millis) : '—';
+
+      var markerWrap = document.createElement('span');
+      var markerInfo = eventStreamMarker(u.kind);
+      markerWrap.className = 'event-stream-marker ' + markerInfo.className;
+      markerWrap.textContent = markerInfo.glyph;
+
+      var desc = document.createElement('span');
+      desc.className = 'event-stream-desc';
+      desc.textContent = eventStreamDescription(u, stepNames);
+
+      var dur = document.createElement('span');
+      dur.className = 'event-stream-duration';
+      if (u.kind === 'StepCompleted' && u.payload && u.payload.step_index != null) {
+        var stepDur = stepDurationFromEvents(events, u.payload.step_index);
+        if (stepDur != null) {
+          dur.textContent = formatDetailDurationMs(stepDur);
+        }
+      }
+
+      li.appendChild(time);
+      li.appendChild(markerWrap);
+      li.appendChild(desc);
+      li.appendChild(dur);
+      eventStreamEl.appendChild(li);
+    }
+
+    lastRenderedStreamEventCount = events.length;
   }
 
   function eventStepIndex(kind, payload) {
@@ -2368,7 +2963,10 @@ body {
   function setDetailError(message) {
     detailWorkflowError.hidden = false;
     detailWorkflowErrorMsg.textContent = message;
+    detailExecutionLayout.hidden = true;
     execGraphWrap.hidden = true;
+    eventStreamWrap.hidden = true;
+    closeStepInspector();
   }
 
   function clearDetailError() {
@@ -2399,15 +2997,30 @@ body {
         renderWorkflowDetailHeader(wf);
         clearDetailError();
         if (!stepNames.length) {
+          detailExecutionLayout.hidden = true;
           execGraphWrap.hidden = true;
+          eventStreamWrap.hidden = true;
           setDetailError('Could not load workflow step definition.');
           return;
         }
+        detailExecutionLayout.hidden = false;
         execGraphWrap.hidden = false;
+        eventStreamWrap.hidden = false;
+        detailEventsCache = events;
+        detailStepNamesCache = stepNames;
         updateApprovalPanel(wf, events, stepNames);
+        updateEventStream(events, stepNames);
         if (key !== lastDetailRenderKey) {
           updateExecutionGraph(stepNames, events);
           lastDetailRenderKey = key;
+        }
+        if (selectedStepIndex != null) {
+          renderStepInspector(
+            selectedStepIndex,
+            events,
+            stepNames,
+            wf.id
+          );
         }
       })
       .catch(function (err) {
@@ -2420,13 +3033,21 @@ body {
     lastDetailRenderKey = '';
     lastRenderedStepStates = null;
     lastRenderedEventCount = 0;
+    lastRenderedStreamEventCount = 0;
+    detailEventsCache = [];
+    detailStepNamesCache = [];
+    selectedStepIndex = null;
+    eventStreamEl.innerHTML = '';
+    closeStepInspector();
     detailWorkflowId.textContent = id;
     detailWorkflowSubject.textContent = '';
     detailWorkflowStatus.textContent = '';
     detailWorkflowStatus.className = 'detail-status';
     detailWorkflowMeta.textContent = '';
     execGraphEl.innerHTML = '';
+    detailExecutionLayout.hidden = true;
     execGraphWrap.hidden = true;
+    eventStreamWrap.hidden = true;
     approvalPanel.hidden = true;
     execGraphWrap.classList.remove('is-waiting-focus');
     resetApprovalPanelUi();
@@ -2628,9 +3249,26 @@ body {
     }
   });
 
+  execGraphEl.addEventListener('click', function (e) {
+    var step = e.target.closest('.exec-step');
+    if (!step || !execGraphEl.contains(step)) {
+      return;
+    }
+    var idx = parseInt(step.getAttribute('data-step-index'), 10);
+    if (!isNaN(idx)) {
+      selectStep(idx);
+    }
+  });
+
+  btnCloseInspector.addEventListener('click', closeStepInspector);
+
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && newWorkflowModal.classList.contains('is-open')) {
       closeNewWorkflowModal();
+      return;
+    }
+    if (e.key === 'Escape' && selectedStepIndex != null) {
+      closeStepInspector();
     }
   });
 
