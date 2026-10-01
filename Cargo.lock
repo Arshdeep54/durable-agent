@@ -9,6 +9,7 @@ dependencies = [
  "rusqlite",
  "strum",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

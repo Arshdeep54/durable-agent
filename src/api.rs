@@ -694,10 +694,12 @@ fn event_to_json(event: &Event) -> serde_json::Value {
         Event::StepResumed {
             workflow_id,
             step_index,
+            input,
         } => serde_json::json!({
             "StepResumed": {
                 "workflow_id": workflow_id,
                 "step_index": step_index,
+                "input": input,
             }
         }),
         Event::WorkflowCompleted { workflow_id } => serde_json::json!({
@@ -1082,6 +1084,21 @@ mod tests {
     }
 
     #[test]
+    fn step_resumed_event_to_json_includes_input() {
+        let event = Event::StepResumed {
+            workflow_id: "w".into(),
+            step_index: 2,
+            input: "approved reply text".into(),
+        };
+        let value = event_to_json(&event);
+        assert_eq!(
+            value["StepResumed"]["input"],
+            serde_json::Value::String("approved reply text".into())
+        );
+        assert_eq!(value["StepResumed"]["step_index"], 2);
+    }
+
+    #[test]
     fn workflow_status_pending_without_events() {
         let (status, waiting) = workflow_status_from_events(&[]);
         assert_eq!(status, "pending");
@@ -1116,6 +1133,7 @@ mod tests {
             Event::StepResumed {
                 workflow_id: "w".into(),
                 step_index: 2,
+                input: "approved".into(),
             },
         ];
         let (status, waiting) = workflow_status_from_events(&events);
@@ -1134,6 +1152,7 @@ mod tests {
             Event::StepResumed {
                 workflow_id: "w".into(),
                 step_index: 2,
+                input: "approved".into(),
             },
             Event::WorkflowCompleted {
                 workflow_id: "w".into(),

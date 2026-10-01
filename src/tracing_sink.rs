@@ -217,6 +217,7 @@ fn event_metadata(event: &Event, worker_id: &str) -> serde_json::Value {
         Event::StepResumed {
             workflow_id,
             step_index,
+            ..
         } => {
             serde_json::json!({
                 "workflow_id": workflow_id,
