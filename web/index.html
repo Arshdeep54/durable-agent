@@ -537,6 +537,201 @@ body {
   margin: 0 0 var(--space-4);
 }
 
+.approval-panel {
+  margin-top: var(--space-5);
+  padding: var(--space-5);
+  border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.approval-panel-kicker {
+  margin: 0 0 var(--space-2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--warning);
+}
+
+.approval-panel-title {
+  margin: 0 0 var(--space-4);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.approval-review {
+  margin: 0 0 var(--space-5);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.approval-review-row {
+  display: grid;
+  gap: 2px;
+}
+
+.approval-review-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+}
+
+.approval-review-value {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+.approval-review-value.is-mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.approval-review-draft {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg) 55%, var(--bg-elevated));
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.approval-reject-row {
+  display: flex;
+  flex: 1;
+  min-width: 200px;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.approval-reject-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--fg);
+}
+
+.approval-reject-row input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.btn-destructive {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 35%, var(--border));
+}
+
+.btn-destructive:hover {
+  background: color-mix(in srgb, var(--error) 6%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--error) 45%, var(--border));
+}
+
+.btn-approve {
+  min-width: 7.5rem;
+  position: relative;
+}
+
+.btn-approve.is-sequencing {
+  animation: approval-btn-press 0.32s ease-out;
+}
+
+.btn-approve.is-done {
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--bg-elevated);
+  pointer-events: none;
+}
+
+.btn-approve.is-done .btn-approve-label {
+  opacity: 0;
+}
+
+.btn-approve-check {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.btn-approve.is-done .btn-approve-check {
+  animation: approval-check-draw 0.38s ease-out 0.12s forwards;
+}
+
+@keyframes approval-btn-press {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(0.92);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes approval-check-draw {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.approval-panel-error {
+  margin: var(--space-3) 0 0;
+  font-size: 12px;
+  color: var(--error);
+}
+
+.exec-graph-wrap.is-waiting-focus .exec-graph {
+  opacity: 1;
+}
+
+.exec-graph-wrap.is-waiting-focus .exec-step {
+  opacity: 0.38;
+  filter: saturate(0.85);
+}
+
+.exec-graph-wrap.is-waiting-focus .exec-connector {
+  opacity: 0.35;
+}
+
+.exec-graph-wrap.is-waiting-focus .exec-step--waiting {
+  opacity: 1;
+  filter: none;
+}
+
 .exec-graph-wrap {
   margin-top: var(--space-5);
   padding-top: var(--space-5);
@@ -1092,6 +1287,22 @@ body {
             <p id="detailWorkflowErrorMsg"></p>
             <button type="button" class="btn" id="detailWorkflowRetry">Retry</button>
           </div>
+          <div class="approval-panel" id="approvalPanel" hidden>
+            <p class="approval-panel-kicker">Approval required</p>
+            <h3 class="approval-panel-title">Review AI response</h3>
+            <div class="approval-review" id="approvalReview"></div>
+            <div class="approval-actions">
+              <button type="button" class="btn btn-primary btn-approve" id="btnApprove">
+                <span class="btn-approve-label">Approve</span>
+                <span class="btn-approve-check" aria-hidden="true">✓</span>
+              </button>
+              <div class="approval-reject-row">
+                <input type="text" id="rejectReason" placeholder="Rejection reason" aria-label="Rejection reason" autocomplete="off">
+                <button type="button" class="btn btn-destructive" id="btnReject">Reject</button>
+              </div>
+            </div>
+            <p class="approval-panel-error" id="approvalPanelError" hidden></p>
+          </div>
           <div class="exec-graph-wrap" id="execGraphWrap" hidden>
             <h3 class="exec-graph-title">Execution</h3>
             <ol class="exec-graph" id="execGraph" aria-label="Workflow execution graph"></ol>
@@ -1226,6 +1437,12 @@ body {
   var detailWorkflowRetry = document.getElementById('detailWorkflowRetry');
   var execGraphWrap = document.getElementById('execGraphWrap');
   var execGraphEl = document.getElementById('execGraph');
+  var approvalPanel = document.getElementById('approvalPanel');
+  var approvalReview = document.getElementById('approvalReview');
+  var approvalPanelError = document.getElementById('approvalPanelError');
+  var btnApprove = document.getElementById('btnApprove');
+  var btnReject = document.getElementById('btnReject');
+  var rejectReasonInput = document.getElementById('rejectReason');
   var newWorkflowModal = document.getElementById('newWorkflowModal');
   var newWorkflowForm = document.getElementById('newWorkflowForm');
   var newWorkflowError = document.getElementById('newWorkflowError');
@@ -1244,6 +1461,8 @@ body {
   var lastDetailRenderKey = '';
   var lastRenderedStepStates = null;
   var lastRenderedEventCount = 0;
+  var approvalActionInFlight = false;
+  var lastApprovalReviewKey = '';
 
   function parseHashRoute() {
     var raw = (location.hash || '#/workflows').replace(/^#/, '');
@@ -1420,6 +1639,171 @@ body {
       }
     }
     return false;
+  }
+
+  function stepIndexByName(stepNames, name) {
+    for (var i = 0; i < stepNames.length; i++) {
+      if (stepNames[i] === name) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function stepCompletedOutput(events, stepIndex) {
+    for (var i = events.length - 1; i >= 0; i--) {
+      var u = unwrapEvent(events[i]);
+      if (
+        u &&
+        u.kind === 'StepCompleted' &&
+        u.payload &&
+        u.payload.step_index === stepIndex &&
+        u.payload.output
+      ) {
+        return u.payload.output;
+      }
+    }
+    return null;
+  }
+
+  function parseClassificationFromEvents(events, stepNames) {
+    var classifyIndex = stepIndexByName(stepNames, 'ClassifyTicket');
+    if (classifyIndex < 0) {
+      return null;
+    }
+    var raw = stepCompletedOutput(events, classifyIndex);
+    if (!raw) {
+      return null;
+    }
+    try {
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') {
+        return null;
+      }
+      return parsed;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function resetApprovalPanelUi() {
+    approvalActionInFlight = false;
+    approvalPanelError.hidden = true;
+    approvalPanelError.textContent = '';
+    btnApprove.disabled = false;
+    btnReject.disabled = false;
+    rejectReasonInput.disabled = false;
+    btnApprove.classList.remove('is-sequencing', 'is-done');
+  }
+
+  function renderApprovalReview(classification) {
+    approvalReview.innerHTML = '';
+    if (!classification) {
+      return;
+    }
+    if (classification.category) {
+      var catRow = document.createElement('div');
+      catRow.className = 'approval-review-row';
+      var catLabel = document.createElement('p');
+      catLabel.className = 'approval-review-label';
+      catLabel.textContent = 'Category';
+      var catVal = document.createElement('p');
+      catVal.className = 'approval-review-value is-mono';
+      catVal.textContent = classification.category;
+      catRow.appendChild(catLabel);
+      catRow.appendChild(catVal);
+      approvalReview.appendChild(catRow);
+    }
+    if (classification.urgency) {
+      var urgRow = document.createElement('div');
+      urgRow.className = 'approval-review-row';
+      var urgLabel = document.createElement('p');
+      urgLabel.className = 'approval-review-label';
+      urgLabel.textContent = 'Urgency';
+      var urgVal = document.createElement('p');
+      urgVal.className = 'approval-review-value is-mono';
+      urgVal.textContent = classification.urgency;
+      urgRow.appendChild(urgLabel);
+      urgRow.appendChild(urgVal);
+      approvalReview.appendChild(urgRow);
+    }
+    if (classification.draft_reply) {
+      var draftRow = document.createElement('div');
+      draftRow.className = 'approval-review-row';
+      var draftLabel = document.createElement('p');
+      draftLabel.className = 'approval-review-label';
+      draftLabel.textContent = 'Draft reply';
+      var draftVal = document.createElement('p');
+      draftVal.className = 'approval-review-draft';
+      draftVal.textContent = classification.draft_reply;
+      draftRow.appendChild(draftLabel);
+      draftRow.appendChild(draftVal);
+      approvalReview.appendChild(draftRow);
+    }
+  }
+
+  function playApprovalContinueSequence(approvalStepIndex, stepCount) {
+    var pulseOnce = {};
+    var stepEl = graphStepEl(approvalStepIndex);
+    if (stepEl) {
+      applyStepState(stepEl, 'completed', { completeEnter: true });
+    }
+    if (approvalStepIndex < stepCount - 1) {
+      pulseConnector(approvalStepIndex, pulseOnce);
+      var nextEl = graphStepEl(approvalStepIndex + 1);
+      if (nextEl) {
+        window.setTimeout(function () {
+          triggerStepActivate(nextEl);
+        }, 320);
+      }
+    }
+  }
+
+  function updateApprovalPanel(wf, events, stepNames) {
+    var waiting = wf.status === 'waiting';
+    execGraphWrap.classList.toggle('is-waiting-focus', waiting);
+    if (!waiting) {
+      approvalPanel.hidden = true;
+      if (!approvalActionInFlight) {
+        resetApprovalPanelUi();
+      }
+      lastApprovalReviewKey = '';
+      return;
+    }
+
+    approvalPanel.hidden = false;
+    var classification = parseClassificationFromEvents(events, stepNames);
+    var reviewKey =
+      (classification && classification.category ? classification.category : '') +
+      '|' +
+      (classification && classification.urgency ? classification.urgency : '') +
+      '|' +
+      (classification && classification.draft_reply ? classification.draft_reply : '');
+    if (reviewKey !== lastApprovalReviewKey) {
+      renderApprovalReview(classification);
+      lastApprovalReviewKey = reviewKey;
+    }
+  }
+
+  function postApprovalDecision(id, path, body) {
+    return fetch('/workflows/' + encodeURIComponent(id) + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: body
+    });
+  }
+
+  function bumpDetailRefresh(id) {
+    window.setTimeout(function () {
+      if (detailWorkflowIdCurrent === id) {
+        refreshWorkflowDetail(id);
+      }
+    }, 400);
+    window.setTimeout(function () {
+      if (detailWorkflowIdCurrent === id) {
+        refreshWorkflowDetail(id);
+      }
+    }, 1200);
   }
 
   function deriveStepStates(events, stepCount) {
@@ -2020,6 +2404,7 @@ body {
           return;
         }
         execGraphWrap.hidden = false;
+        updateApprovalPanel(wf, events, stepNames);
         if (key !== lastDetailRenderKey) {
           updateExecutionGraph(stepNames, events);
           lastDetailRenderKey = key;
@@ -2042,6 +2427,10 @@ body {
     detailWorkflowMeta.textContent = '';
     execGraphEl.innerHTML = '';
     execGraphWrap.hidden = true;
+    approvalPanel.hidden = true;
+    execGraphWrap.classList.remove('is-waiting-focus');
+    resetApprovalPanelUi();
+    lastApprovalReviewKey = '';
     clearDetailError();
     refreshWorkflowDetail(id);
   }
@@ -2163,6 +2552,72 @@ body {
       loadWorkflowDetail(detailWorkflowIdCurrent);
       startDetailPoll(detailWorkflowIdCurrent);
     }
+  });
+
+  btnApprove.addEventListener('click', function () {
+    var id = detailWorkflowIdCurrent;
+    if (!id || approvalActionInFlight) {
+      return;
+    }
+    approvalActionInFlight = true;
+    approvalPanelError.hidden = true;
+    btnApprove.disabled = true;
+    btnReject.disabled = true;
+    rejectReasonInput.disabled = true;
+    btnApprove.classList.add('is-sequencing');
+
+    fetchWorkflowDefinition().then(function (stepNames) {
+      var approvalIndex = stepIndexByName(stepNames, 'RequestApproval');
+      return postApprovalDecision(id, '/approve', 'approved').then(function (r) {
+        if (r.status === 404) {
+          throw new Error('This workflow is not waiting for approval.');
+        }
+        if (r.status !== 202) {
+          throw new Error('Approve failed (' + r.status + ').');
+        }
+        btnApprove.classList.remove('is-sequencing');
+        btnApprove.classList.add('is-done');
+        if (approvalIndex >= 0) {
+          playApprovalContinueSequence(approvalIndex, stepNames.length);
+        }
+        bumpDetailRefresh(id);
+      });
+    }).catch(function (err) {
+      approvalActionInFlight = false;
+      approvalPanelError.hidden = false;
+      approvalPanelError.textContent = err.message || 'Approve failed.';
+      resetApprovalPanelUi();
+    });
+  });
+
+  btnReject.addEventListener('click', function () {
+    var id = detailWorkflowIdCurrent;
+    if (!id || approvalActionInFlight) {
+      return;
+    }
+    approvalActionInFlight = true;
+    approvalPanelError.hidden = true;
+    btnApprove.disabled = true;
+    btnReject.disabled = true;
+    rejectReasonInput.disabled = true;
+    var reason = rejectReasonInput.value.trim();
+    var body = reason || 'rejected';
+    postApprovalDecision(id, '/reject', body).then(function (r) {
+      if (r.status === 404) {
+        throw new Error('This workflow is not waiting for approval.');
+      }
+      if (r.status !== 202) {
+        throw new Error('Reject failed (' + r.status + ').');
+      }
+      bumpDetailRefresh(id);
+    }).catch(function (err) {
+      approvalActionInFlight = false;
+      approvalPanelError.hidden = false;
+      approvalPanelError.textContent = err.message || 'Reject failed.';
+      btnApprove.disabled = false;
+      btnReject.disabled = false;
+      rejectReasonInput.disabled = false;
+    });
   });
 
   window.addEventListener('hashchange', applyRoute);
