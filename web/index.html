@@ -22,8 +22,9 @@
   --running: #3d5f7a;
   --sans: 'Inter', system-ui, -apple-system, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sidebar-w: 200px;
-  --header-h: 48px;
+  --topbar-h: 52px;
+  --content-max: 1280px;
+  --exec-canvas-bg: #ffffff;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -56,42 +57,89 @@ body {
   min-height: 100%;
 }
 
-.app-header {
+.app-topbar {
   flex: none;
-  height: var(--header-h);
+  height: var(--topbar-h);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: var(--space-4);
   padding-inline: var(--space-5);
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
+  position: sticky;
+  top: 0;
+  z-index: 50;
 }
 
-.header-search {
+.topbar-brand {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--fg);
+  margin: 0;
+  flex: none;
+}
+
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   flex: 1;
-  max-width: 280px;
-  margin-right: auto;
+  min-width: 0;
 }
 
-.header-search input {
-  width: 100%;
+.topbar-nav-link {
   font-family: var(--sans);
   font-size: 13px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg);
-  color: var(--fg);
-  outline: none;
-  transition: border-color 0.15s ease;
-}
-
-.header-search input::placeholder {
+  font-weight: 500;
   color: var(--fg-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
 }
 
-.header-search input:focus {
+.topbar-nav-link:hover {
+  color: var(--fg);
+  background: rgba(20, 20, 19, 0.04);
+}
+
+.topbar-nav-link[aria-current="page"] {
+  color: var(--fg);
+  background: rgba(20, 20, 19, 0.06);
+}
+
+.topbar-nav-link.is-settings {
+  margin-left: auto;
+  color: var(--fg-secondary);
+  font-size: 16px;
+  line-height: 1;
+  padding-inline: 8px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+}
+
+.cmd-k-hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-secondary);
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+
+.cmd-k-hint:hover {
+  color: var(--fg);
   border-color: var(--border-strong);
 }
 
@@ -120,81 +168,30 @@ body {
   color: var(--error);
 }
 
-.app-body {
-  display: flex;
+.app-content {
   flex: 1;
+  min-width: 0;
   min-height: 0;
-}
-
-.sidebar {
-  flex: none;
-  width: var(--sidebar-w);
-  padding: var(--space-5) var(--space-4);
-  border-right: 1px solid var(--border);
-  background: var(--bg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-}
-
-.wordmark {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  color: var(--fg);
-  padding-inline: var(--space-2);
-  margin: 0;
-}
-
-.nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.nav-item {
-  margin: 0;
-}
-
-.nav-link {
-  display: block;
-  width: 100%;
-  text-align: left;
-  font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--fg-secondary);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 6px var(--space-2);
-  cursor: pointer;
-  transition: color 0.12s ease, background 0.12s ease;
-}
-
-.nav-link:hover {
-  color: var(--fg);
-  background: rgba(20, 20, 19, 0.04);
-}
-
-.nav-link[aria-current="page"] {
-  color: var(--fg);
-  background: rgba(20, 20, 19, 0.06);
+  overflow: auto;
 }
 
 .main {
-  flex: 1;
-  min-width: 0;
-  padding: var(--space-6) var(--space-6) var(--space-5);
-  overflow: auto;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) var(--space-6);
 }
 
 .main-section {
   display: none;
-  max-width: 960px;
+}
+
+.main-section.is-detail-active {
+  max-width: none;
+}
+
+.main.is-wide {
+  max-width: none;
+  padding-inline: var(--space-6);
 }
 
 .main-section.is-active {
@@ -330,12 +327,31 @@ body {
   padding: 0;
 }
 
+.workflows-list-meta {
+  font-size: 13px;
+  color: var(--fg-secondary);
+  margin: 0 0 var(--space-4);
+}
+
+.workflows-list-meta strong {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.list-loading {
+  font-size: 13px;
+  color: var(--fg-secondary);
+  padding: var(--space-4) 0;
+  margin: 0;
+}
+
 .workflow-row {
   display: grid;
   width: 100%;
-  grid-template-columns: 1fr auto;
-  gap: var(--space-3) var(--space-5);
-  align-items: start;
+  grid-template-columns: minmax(0, 1.4fr) minmax(120px, 0.9fr) minmax(72px, auto) minmax(88px, auto);
+  gap: var(--space-3) var(--space-4);
+  align-items: center;
   padding: var(--space-4) 0;
   border: none;
   border-bottom: 1px solid var(--border);
@@ -418,17 +434,52 @@ body {
   margin: 0;
 }
 
-.workflow-steps {
+.workflow-row-step {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-secondary);
+  margin: 4px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-row-progress {
   font-size: 12px;
   color: var(--fg-secondary);
-  margin: 6px 0 0;
+  margin: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.empty-state-pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 var(--space-5);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-secondary);
+}
+
+.empty-state-pipeline span {
+  opacity: 0.85;
+}
+
+.empty-state-pipeline .pipe-arrow {
+  opacity: 0.45;
 }
 
 .empty-state {
-  padding: var(--space-6) 0;
+  padding: var(--space-6) var(--space-4);
   text-align: center;
-  max-width: 320px;
-  margin: var(--space-5) auto 0;
+  max-width: 420px;
+  margin: var(--space-6) auto 0;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-elevated) 80%, var(--bg));
 }
 
 .empty-state h3 {
@@ -478,6 +529,92 @@ body {
 
 .detail-header {
   margin-bottom: var(--space-5);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.detail-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.detail-id-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.btn-copy-id {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+
+.btn-copy-id:hover {
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+
+.detail-current-step {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--fg);
+  margin: 0;
+}
+
+.detail-respan-link {
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+}
+
+.detail-respan-link a {
+  color: var(--running);
+  text-decoration: none;
+}
+
+.detail-respan-link a:hover {
+  text-decoration: underline;
+}
+
+.approval-reject-panel {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.approval-reject-panel label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+}
+
+.approval-reject-panel input {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.approval-reject-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 .detail-status {
@@ -732,30 +869,137 @@ body {
   filter: none;
 }
 
+.approval-reject-row {
+  display: none;
+}
+
 .detail-execution-layout {
   margin-top: var(--space-5);
-  padding-top: var(--space-5);
-  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
 }
 
-.detail-execution-layout.has-inspector-open {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: var(--space-6);
+.exec-canvas {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--exec-canvas-bg);
+  padding: var(--space-5) var(--space-4);
+  overflow-x: auto;
 }
 
-.detail-execution-main {
-  flex: 1;
+.detail-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.detail-panels-main {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
-.exec-graph-wrap {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: none;
+.detail-execution-layout.has-inspector-open .detail-panels {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+}
+
+.detail-execution-layout.has-inspector-open .step-inspector {
+  display: block;
+}
+
+.event-detail {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  padding: var(--space-4);
+}
+
+.event-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.event-detail-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.event-detail-close {
+  padding: 2px 8px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.event-detail-fields {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.obs-table-wrap {
+  margin-top: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+
+.obs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.obs-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.obs-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.obs-table tr:last-child td {
+  border-bottom: none;
+}
+
+.obs-table .obs-mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.obs-table a {
+  color: var(--running);
+  text-decoration: none;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.obs-table a:hover {
+  text-decoration: underline;
+}
+
+.obs-empty {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--fg-secondary);
+  font-size: 13px;
 }
 
 .exec-graph-title {
@@ -773,9 +1017,71 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 0;
-  max-width: 320px;
+  max-width: 360px;
+}
+
+@media (min-width: 900px) {
+  .exec-graph {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    max-width: none;
+    gap: 0;
+  }
+
+  .exec-graph-item {
+    flex-direction: row;
+    flex: 1 1 0;
+    min-width: 0;
+    align-items: stretch;
+  }
+
+  .exec-graph-item .exec-step {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .exec-connector {
+    width: 32px;
+    height: auto;
+    min-height: 2px;
+    align-self: center;
+    flex: none;
+    margin-inline: 2px;
+  }
+
+  .exec-connector.is-pulse::after {
+    left: 0;
+    top: 50%;
+    margin-left: 0;
+    margin-top: -1.5px;
+    animation: exec-connector-pulse-h 0.55s ease-out forwards;
+  }
+
+  @keyframes exec-connector-pulse-h {
+    0% {
+      left: 0;
+      opacity: 0.95;
+    }
+    100% {
+      left: calc(100% - 3px);
+      opacity: 0;
+    }
+  }
+
+  .exec-graph-wrap.is-waiting-focus .exec-step--waiting::after {
+    content: 'waiting';
+    display: block;
+    grid-column: 1 / -1;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--warning);
+    margin-top: 4px;
+  }
 }
 
 .exec-graph-item {
@@ -915,9 +1221,9 @@ body {
 }
 
 .event-stream-wrap {
-  margin-top: var(--space-5);
-  padding-top: var(--space-5);
-  border-top: 1px solid var(--border);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
 .event-stream-title {
@@ -946,8 +1252,20 @@ body {
   grid-template-columns: 4.75rem 1.25rem 1fr auto;
   gap: var(--space-2);
   align-items: baseline;
-  padding: 3px 0;
+  padding: 6px 8px;
+  margin-inline: -8px;
+  border-radius: var(--radius-sm);
   color: var(--fg-secondary);
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.event-stream-row:hover {
+  background: rgba(20, 20, 19, 0.04);
+}
+
+.event-stream-row.is-selected {
+  background: rgba(20, 20, 19, 0.06);
 }
 
 .event-stream-row--enter {
@@ -1569,44 +1887,34 @@ body {
 }
 
 @media (max-width: 720px) {
-  :root {
-    --sidebar-w: 100%;
+  .app-topbar {
+    padding-inline: var(--space-4);
+    gap: var(--space-2);
   }
 
-  .app-body {
-    flex-direction: column;
+  .topbar-nav-link:not([aria-current="page"]):not(.is-settings) {
+    display: none;
   }
 
-  .sidebar {
-    width: 100%;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+  .topbar-nav-link.is-settings {
+    margin-left: 0;
   }
 
-  .nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-    flex: 1;
+  .cmd-k-hint {
+    display: none;
   }
 
   .main {
-    padding: var(--space-5) var(--space-4);
-  }
-
-  .header-search {
-    max-width: none;
+    padding: var(--space-4) var(--space-4) var(--space-5);
   }
 
   .workflow-row {
     grid-template-columns: 1fr;
+    align-items: start;
   }
 
-  .workflow-row-meta {
+  .workflow-row-meta,
+  .workflow-row-progress {
     text-align: left;
   }
 
@@ -1614,8 +1922,8 @@ body {
     justify-content: flex-start;
   }
 
-  .detail-execution-layout.has-inspector-open {
-    flex-direction: column;
+  .detail-panels {
+    grid-template-columns: 1fr;
   }
 
   .step-inspector {
@@ -1629,42 +1937,33 @@ body {
     overflow: auto;
     box-shadow: 0 8px 32px rgba(20, 20, 19, 0.12);
   }
+
+  .exec-graph {
+    max-width: none;
+  }
 }
 </style>
 </head>
 <body>
 <div class="app">
-  <header class="app-header">
-    <div class="header-search">
-      <input type="search" placeholder="Search" aria-label="Search" disabled>
-    </div>
-    <div class="connection is-disconnected" id="connection" aria-live="polite">
-      <span class="dot" aria-hidden="true">●</span>
-      <span id="connectionLabel">Checking…</span>
+  <header class="app-topbar">
+    <p class="topbar-brand">durable</p>
+    <nav class="topbar-nav" aria-label="Primary">
+      <button type="button" class="topbar-nav-link" data-section="workflows" aria-current="page">Workflows</button>
+      <button type="button" class="topbar-nav-link" data-section="observability">Observability</button>
+      <button type="button" class="topbar-nav-link" data-section="evaluations">Evaluations</button>
+      <button type="button" class="topbar-nav-link is-settings" data-section="settings" aria-label="Settings">⚙</button>
+    </nav>
+    <div class="topbar-actions">
+      <button type="button" class="cmd-k-hint" id="btnOpenCommandPalette" aria-label="Open command palette">⌘K</button>
+      <div class="connection is-disconnected" id="connection" aria-live="polite">
+        <span class="dot" aria-hidden="true">●</span>
+        <span id="connectionLabel">Checking…</span>
+      </div>
     </div>
   </header>
 
-  <div class="app-body">
-    <aside class="sidebar" aria-label="Primary">
-      <h1 class="wordmark">durable</h1>
-      <nav>
-        <ul class="nav" role="list">
-          <li class="nav-item">
-            <button type="button" class="nav-link" data-section="workflows" aria-current="page">Workflows</button>
-          </li>
-          <li class="nav-item">
-            <button type="button" class="nav-link" data-section="observability">Observability</button>
-          </li>
-          <li class="nav-item">
-            <button type="button" class="nav-link" data-section="evaluations">Evaluations</button>
-          </li>
-          <li class="nav-item">
-            <button type="button" class="nav-link" data-section="settings" aria-label="Settings">⚙</button>
-          </li>
-        </ul>
-      </nav>
-    </aside>
-
+  <div class="app-content">
     <main class="main" id="main">
       <section class="main-section is-active" id="section-workflows" aria-labelledby="title-workflows">
         <div id="workflows-list-view">
@@ -1682,6 +1981,8 @@ body {
             <button type="button" class="chip" data-filter="failed">Failed</button>
             <button type="button" class="chip" data-filter="completed">Completed</button>
           </div>
+          <p class="workflows-list-meta" id="workflowsListMeta" hidden></p>
+          <p class="list-loading" id="workflowsListLoading">Loading workflows…</p>
           <div id="workflowsListError" class="list-error" hidden>
             <h3>Couldn't load workflows</h3>
             <p id="workflowsListErrorMsg"></p>
@@ -1690,18 +1991,32 @@ body {
           <ul class="workflow-list" id="workflowList" aria-live="polite"></ul>
           <div class="empty-state" id="workflowsEmpty" hidden>
             <h3>No workflows yet</h3>
-            <p>Create your first workflow to see durable execution in action.</p>
-            <button type="button" class="btn btn-primary" id="btnEmptyNewWorkflow">+ New workflow</button>
+            <p>Create a workflow and watch durable execution happen step by step.</p>
+            <div class="empty-state-pipeline" aria-hidden="true">
+              <span>Ingest</span><span class="pipe-arrow">→</span>
+              <span>Classify</span><span class="pipe-arrow">→</span>
+              <span>Approve</span><span class="pipe-arrow">→</span>
+              <span>Reply</span>
+            </div>
+            <button type="button" class="btn btn-primary" id="btnEmptyNewWorkflow">+ Create workflow</button>
           </div>
         </div>
         <div id="workflows-detail-view" hidden>
           <button type="button" class="btn btn-ghost detail-back" id="btnBackToList">← Workflows</button>
           <div class="detail-header">
-            <h2 class="detail-id" id="detailWorkflowId"></h2>
-            <p class="workflow-subject" id="detailWorkflowSubject"></p>
+            <div class="detail-title-row">
+              <div>
+                <div class="detail-id-row">
+                  <h2 class="detail-id" id="detailWorkflowId"></h2>
+                  <button type="button" class="btn-copy-id" id="btnCopyWorkflowId" aria-label="Copy workflow ID">Copy</button>
+                </div>
+                <p class="workflow-subject" id="detailWorkflowSubject"></p>
+              </div>
+            </div>
             <p class="detail-status" id="detailWorkflowStatus"></p>
+            <p class="detail-current-step" id="detailCurrentStep" hidden></p>
             <p class="detail-meta" id="detailWorkflowMeta"></p>
-            <p id="detailRespanLink" style="margin-top: var(--space-3); font-size: 13px;"><a id="detailRespanLinkEl" href="#" target="_blank" rel="noopener noreferrer" style="color: var(--running); text-decoration: none;">Open trace in Respan ↗</a></p>
+            <p class="detail-respan-link" id="detailRespanLink"><a id="detailRespanLinkEl" href="#" target="_blank" rel="noopener noreferrer">Open trace in Respan ↗</a></p>
           </div>
           <div id="detailWorkflowError" class="detail-error" hidden>
             <h3>Couldn't load workflow</h3>
@@ -1717,58 +2032,79 @@ body {
                 <span class="btn-approve-label">Approve</span>
                 <span class="btn-approve-check" aria-hidden="true">✓</span>
               </button>
-              <div class="approval-reject-row">
-                <input type="text" id="rejectReason" placeholder="Rejection reason" aria-label="Rejection reason" autocomplete="off">
-                <button type="button" class="btn btn-destructive" id="btnReject">Reject</button>
+              <button type="button" class="btn btn-destructive" id="btnRejectToggle">Reject</button>
+            </div>
+            <div class="approval-reject-panel" id="rejectReasonPanel" hidden>
+              <label for="rejectReason">Rejection reason</label>
+              <input type="text" id="rejectReason" placeholder="Why is this response being rejected?" aria-label="Rejection reason" autocomplete="off">
+              <div class="approval-reject-actions">
+                <button type="button" class="btn" id="btnRejectCancel">Cancel</button>
+                <button type="button" class="btn btn-destructive" id="btnReject">Reject workflow</button>
               </div>
             </div>
             <p class="approval-panel-error" id="approvalPanelError" hidden></p>
           </div>
           <div class="detail-execution-layout" id="detailExecutionLayout" hidden>
-            <div class="detail-execution-main">
-              <div class="exec-graph-wrap" id="execGraphWrap" hidden>
-                <h3 class="exec-graph-title">Execution</h3>
-                <ol class="exec-graph" id="execGraph" aria-label="Workflow execution graph"></ol>
-              </div>
-              <div class="event-stream-wrap" id="eventStreamWrap" hidden>
-                <h3 class="event-stream-title">Events</h3>
-                <ol class="event-stream" id="eventStream" aria-live="polite"></ol>
-              </div>
+            <div class="exec-canvas exec-graph-wrap" id="execGraphWrap" hidden>
+              <h3 class="exec-graph-title">Execution</h3>
+              <ol class="exec-graph" id="execGraph" aria-label="Workflow execution graph"></ol>
             </div>
-            <aside class="step-inspector" id="stepInspector" aria-labelledby="stepInspectorTitle" hidden>
-              <div class="step-inspector-header">
-                <h3 class="step-inspector-title" id="stepInspectorTitle"></h3>
-                <button type="button" class="btn btn-ghost step-inspector-close" id="btnCloseInspector" aria-label="Close inspector">×</button>
+            <div class="detail-panels" id="detailPanels">
+              <div class="detail-panels-main">
+                <div class="event-stream-wrap" id="eventStreamWrap" hidden>
+                  <h3 class="event-stream-title">Events</h3>
+                  <ol class="event-stream" id="eventStream" aria-live="polite"></ol>
+                </div>
+                <div class="event-detail" id="eventDetail" hidden>
+                  <div class="event-detail-header">
+                    <h4 class="event-detail-title" id="eventDetailTitle"></h4>
+                    <button type="button" class="btn btn-ghost event-detail-close" id="btnCloseEventDetail" aria-label="Close event detail">×</button>
+                  </div>
+                  <div class="event-detail-fields" id="eventDetailBody"></div>
+                </div>
               </div>
-              <div class="step-inspector-body" id="stepInspectorBody"></div>
-            </aside>
+              <aside class="step-inspector" id="stepInspector" aria-labelledby="stepInspectorTitle" hidden>
+                <div class="step-inspector-header">
+                  <h3 class="step-inspector-title" id="stepInspectorTitle"></h3>
+                  <button type="button" class="btn btn-ghost step-inspector-close" id="btnCloseInspector" aria-label="Close inspector">×</button>
+                </div>
+                <div class="step-inspector-body" id="stepInspectorBody"></div>
+              </aside>
+            </div>
           </div>
         </div>
       </section>
 
       <section class="main-section" id="section-observability" aria-labelledby="title-observability" hidden>
         <h2 class="section-title" id="title-observability">Observability</h2>
-        <div class="placeholder-block">
-          <p class="placeholder-text">Detailed traces and system behavior.</p>
-          <p style="margin-top: var(--space-3); color: var(--fg-secondary); font-size: 13px; line-height: 1.6;">
-            Use <a href="https://respan.ai" target="_blank" rel="noopener noreferrer" style="color: var(--running); text-decoration: none;">Respan</a> for deeper observability into workflow execution, including detailed traces, timing analysis, and performance metrics.
-          </p>
-          <p style="margin-top: var(--space-3); color: var(--fg-secondary); font-size: 13px;">
-            When viewing a workflow, click "Open trace in Respan ↗" in the step inspector to view detailed execution traces.
-          </p>
+        <p class="placeholder-text">Recent workflow executions and trace links. Use Respan for deeper trace analysis.</p>
+        <div id="observabilityContent">
+          <p class="list-loading" id="observabilityLoading">Loading…</p>
+          <div class="obs-table-wrap" id="observabilityTableWrap" hidden>
+            <table class="obs-table">
+              <thead>
+                <tr>
+                  <th>Workflow</th>
+                  <th>Duration</th>
+                  <th>Steps</th>
+                  <th>Status</th>
+                  <th>Trace</th>
+                </tr>
+              </thead>
+              <tbody id="observabilityTableBody"></tbody>
+            </table>
+          </div>
+          <div class="obs-empty" id="observabilityEmpty" hidden>No workflow executions yet.</div>
         </div>
       </section>
 
       <section class="main-section" id="section-evaluations" aria-labelledby="title-evaluations" hidden>
         <h2 class="section-title" id="title-evaluations">Evaluations</h2>
         <div class="placeholder-block">
-          <p class="placeholder-text">Reliability test scenarios.</p>
-          <p style="margin-top: var(--space-4); color: var(--fg-secondary); font-size: 13px; line-height: 1.6;">
-            The test suite covers critical reliability scenarios:
-          </p>
-          <ol id="evalsList" style="margin-top: var(--space-3); color: var(--fg); font-size: 13px; line-height: 1.8; padding-left: var(--space-5);"></ol>
+          <p class="placeholder-text">Run reliability evaluations against durable execution behavior.</p>
+          <ol id="evalsList" style="margin-top: var(--space-4); color: var(--fg); font-size: 13px; line-height: 1.8; padding-left: var(--space-5);"></ol>
           <p style="margin-top: var(--space-5); color: var(--fg-secondary); font-size: 13px; line-height: 1.6;">
-            To run the full evaluation suite, execute:
+            Run the full evaluation suite from the repository root:
           </p>
           <pre style="margin-top: var(--space-2); padding: var(--space-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--mono); font-size: 12px; overflow-x: auto;">cargo test reliability_evals</pre>
         </div>
@@ -1804,9 +2140,13 @@ body {
 
 <div class="modal-backdrop" id="newWorkflowModal" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="newWorkflowTitle">
-    <h2 id="newWorkflowTitle">New workflow</h2>
+    <h2 id="newWorkflowTitle">Create workflow</h2>
     <p class="form-error" id="newWorkflowError" hidden></p>
     <form id="newWorkflowForm">
+      <div class="form-field">
+        <label for="wfId">Workflow ID</label>
+        <input type="text" id="wfId" name="id" autocomplete="off" spellcheck="false">
+      </div>
       <div class="form-field">
         <label for="wfHandle">What should this workflow handle?</label>
         <input type="text" id="wfHandle" name="handle" value="Customer support request" autocomplete="off">
@@ -1825,7 +2165,7 @@ body {
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" id="btnCancelWorkflow">Cancel</button>
-        <button type="submit" class="btn btn-primary" id="btnRunWorkflow">Run workflow →</button>
+        <button type="submit" class="btn btn-primary" id="btnRunWorkflow">Create &amp; run</button>
       </div>
     </form>
   </div>
@@ -1837,7 +2177,9 @@ body {
   var WORKFLOWS_POLL_MS = 4000;
   var connectionEl = document.getElementById('connection');
   var connectionLabel = document.getElementById('connectionLabel');
-  var navLinks = document.querySelectorAll('.nav-link[data-section]');
+  var navLinks = document.querySelectorAll('.topbar-nav-link[data-section]');
+  var mainEl = document.getElementById('main');
+  var sectionWorkflowsEl = document.getElementById('section-workflows');
   var sections = {
     workflows: document.getElementById('section-workflows'),
     observability: document.getElementById('section-observability'),
@@ -1917,6 +2259,9 @@ body {
         link.removeAttribute('aria-current');
       }
     });
+    if (name === 'observability') {
+      renderObservability();
+    }
   }
 
   navLinks.forEach(function (link) {
@@ -1969,6 +2314,22 @@ body {
   var newWorkflowError = document.getElementById('newWorkflowError');
   var btnCancelWorkflow = document.getElementById('btnCancelWorkflow');
   var workflowsListRetry = document.getElementById('workflowsListRetry');
+  var workflowsListMeta = document.getElementById('workflowsListMeta');
+  var workflowsListLoading = document.getElementById('workflowsListLoading');
+  var detailCurrentStep = document.getElementById('detailCurrentStep');
+  var btnCopyWorkflowId = document.getElementById('btnCopyWorkflowId');
+  var eventDetailEl = document.getElementById('eventDetail');
+  var eventDetailTitle = document.getElementById('eventDetailTitle');
+  var eventDetailBody = document.getElementById('eventDetailBody');
+  var btnCloseEventDetail = document.getElementById('btnCloseEventDetail');
+  var rejectReasonPanel = document.getElementById('rejectReasonPanel');
+  var btnRejectToggle = document.getElementById('btnRejectToggle');
+  var btnRejectCancel = document.getElementById('btnRejectCancel');
+  var observabilityLoading = document.getElementById('observabilityLoading');
+  var observabilityTableWrap = document.getElementById('observabilityTableWrap');
+  var observabilityTableBody = document.getElementById('observabilityTableBody');
+  var observabilityEmpty = document.getElementById('observabilityEmpty');
+  var btnOpenCommandPalette = document.getElementById('btnOpenCommandPalette');
 
   var workflows = [];
   var listFilter = 'all';
@@ -1989,6 +2350,8 @@ body {
   var selectedStepIndex = null;
   var approvalActionInFlight = false;
   var lastApprovalReviewKey = '';
+  var selectedEventIndex = null;
+  var listFetchInFlight = false;
 
   function parseHashRoute() {
     var raw = (location.hash || '#/workflows').replace(/^#/, '');
@@ -2019,19 +2382,237 @@ body {
       if (route.workflowId) {
         workflowsListView.hidden = true;
         workflowsDetailView.hidden = false;
+        if (mainEl) {
+          mainEl.classList.add('is-wide');
+        }
+        if (sectionWorkflowsEl) {
+          sectionWorkflowsEl.classList.add('is-detail-active');
+        }
         loadWorkflowDetail(route.workflowId);
         stopWorkflowsPoll();
         startDetailPoll(route.workflowId);
       } else {
         workflowsListView.hidden = false;
         workflowsDetailView.hidden = true;
+        if (mainEl) {
+          mainEl.classList.remove('is-wide');
+        }
+        if (sectionWorkflowsEl) {
+          sectionWorkflowsEl.classList.remove('is-detail-active');
+        }
         stopDetailPoll();
         startWorkflowsPoll();
         renderWorkflowList();
       }
     } else {
+      if (mainEl) {
+        mainEl.classList.remove('is-wide');
+      }
+      if (sectionWorkflowsEl) {
+        sectionWorkflowsEl.classList.remove('is-detail-active');
+      }
       stopWorkflowsPoll();
       stopDetailPoll();
+      if (sectionName === 'observability') {
+        renderObservability();
+      }
+    }
+  }
+
+  function workflowStatusShort(wf) {
+    if (wf.status === 'waiting') {
+      return 'WAITING';
+    }
+    if (wf.status === 'running' || wf.status === 'pending') {
+      return wf.status === 'pending' ? 'PENDING' : 'RUNNING';
+    }
+    if (wf.status === 'completed') {
+      return 'COMPLETED';
+    }
+    if (wf.status === 'failed') {
+      return 'FAILED';
+    }
+    if (wf.status === 'cancelled') {
+      return 'CANCELLED';
+    }
+    return String(wf.status || '').toUpperCase();
+  }
+
+  function workflowListProgressLabel(wf) {
+    if (wf.status === 'completed') {
+      return wf.step_count + (wf.step_count === 1 ? ' step' : ' steps');
+    }
+    if (wf.current_step_name) {
+      return wf.current_step_name;
+    }
+    return wf.step_count + ' steps';
+  }
+
+  function updateWorkflowListMeta() {
+    if (!workflowsListMeta) {
+      return;
+    }
+    if (!listLoadedOnce || workflows.length === 0) {
+      workflowsListMeta.hidden = true;
+      return;
+    }
+    var n = workflows.length;
+    workflowsListMeta.hidden = false;
+    workflowsListMeta.innerHTML =
+      '<strong>' + n + '</strong> workflow' + (n === 1 ? '' : 's');
+  }
+
+  function renderObservability() {
+    if (!observabilityTableBody) {
+      return;
+    }
+    if (observabilityLoading) {
+      observabilityLoading.hidden = listLoadedOnce;
+    }
+    if (!listLoadedOnce) {
+      fetchWorkflows().then(function () {
+        renderObservability();
+      });
+      return;
+    }
+    observabilityTableBody.innerHTML = '';
+    var rows = workflows.slice().sort(function (a, b) {
+      var ta = a.last_event_at_millis || a.started_at_millis || 0;
+      var tb = b.last_event_at_millis || b.started_at_millis || 0;
+      return tb - ta;
+    });
+    if (rows.length === 0) {
+      if (observabilityTableWrap) {
+        observabilityTableWrap.hidden = true;
+      }
+      if (observabilityEmpty) {
+        observabilityEmpty.hidden = false;
+      }
+      return;
+    }
+    if (observabilityEmpty) {
+      observabilityEmpty.hidden = true;
+    }
+    if (observabilityTableWrap) {
+      observabilityTableWrap.hidden = false;
+    }
+    rows.slice(0, 25).forEach(function (wf) {
+      var tr = document.createElement('tr');
+      var idTd = document.createElement('td');
+      idTd.className = 'obs-mono';
+      var idLink = document.createElement('a');
+      idLink.href = '#/workflows/' + encodeURIComponent(wf.id);
+      idLink.textContent = wf.id;
+      idTd.appendChild(idLink);
+      var durTd = document.createElement('td');
+      durTd.className = 'obs-mono';
+      durTd.textContent = formatDetailDurationMs(wf.duration_millis);
+      var stepsTd = document.createElement('td');
+      stepsTd.textContent = String(wf.step_count);
+      var statusTd = document.createElement('td');
+      statusTd.textContent = workflowStatusShort(wf);
+      var traceTd = document.createElement('td');
+      var traceLink = document.createElement('a');
+      traceLink.href = respanTraceUrl(wf.id);
+      traceLink.target = '_blank';
+      traceLink.rel = 'noopener noreferrer';
+      traceLink.textContent = 'Respan ↗';
+      traceTd.appendChild(traceLink);
+      tr.appendChild(idTd);
+      tr.appendChild(durTd);
+      tr.appendChild(stepsTd);
+      tr.appendChild(statusTd);
+      tr.appendChild(traceTd);
+      observabilityTableBody.appendChild(tr);
+    });
+  }
+
+  function closeEventDetail() {
+    selectedEventIndex = null;
+    if (eventDetailEl) {
+      eventDetailEl.hidden = true;
+    }
+    if (eventStreamEl) {
+      eventStreamEl.querySelectorAll('.event-stream-row.is-selected').forEach(function (el) {
+        el.classList.remove('is-selected');
+      });
+    }
+  }
+
+  function renderEventDetail(eventIndex, events, stepNames) {
+    if (!eventDetailEl || !eventDetailBody || !eventDetailTitle) {
+      return;
+    }
+    var raw = events[eventIndex];
+    var u = unwrapEvent(raw);
+    if (!u) {
+      closeEventDetail();
+      return;
+    }
+    selectedEventIndex = eventIndex;
+    eventDetailEl.hidden = false;
+    eventDetailTitle.textContent = eventStreamDescription(u, stepNames, events, eventIndex);
+    eventDetailBody.innerHTML = '';
+    function addField(label, value, mono) {
+      var wrap = document.createElement('div');
+      wrap.className = 'step-inspector-field';
+      var lab = document.createElement('p');
+      lab.className = 'step-inspector-label';
+      lab.textContent = label;
+      var val = document.createElement('p');
+      val.className = 'step-inspector-value' + (mono ? ' is-mono' : '');
+      val.textContent = value;
+      wrap.appendChild(lab);
+      wrap.appendChild(val);
+      eventDetailBody.appendChild(wrap);
+    }
+    addField(
+      'Timestamp',
+      u.ts_millis != null
+        ? formatStartedClock(u.ts_millis) + '.' + ('00' + (u.ts_millis % 1000)).slice(-3)
+        : '—',
+      true
+    );
+    addField('Workflow', detailWorkflowIdCurrent || '—', true);
+    if (u.payload && u.payload.attempt != null) {
+      addField('Attempt', String(u.payload.attempt + 1), true);
+    }
+    if (u.payload && u.payload.worker_id) {
+      addField('Worker', u.payload.worker_id, true);
+    }
+    if (u.payload && u.payload.reason) {
+      addField('Reason', String(u.payload.reason), false);
+    }
+    if (u.payload) {
+      var metaKeys = Object.keys(u.payload).filter(function (k) {
+        return ['step_index', 'attempt', 'worker_id', 'reason', 'output'].indexOf(k) === -1;
+      });
+      if (metaKeys.length) {
+        var pre = document.createElement('pre');
+        pre.className = 'step-inspector-pre';
+        var slim = {};
+        metaKeys.forEach(function (k) {
+          slim[k] = u.payload[k];
+        });
+        pre.textContent = JSON.stringify(slim, null, 2);
+        var metaWrap = document.createElement('div');
+        metaWrap.className = 'step-inspector-field';
+        var metaLab = document.createElement('p');
+        metaLab.className = 'step-inspector-label';
+        metaLab.textContent = 'Event metadata';
+        metaWrap.appendChild(metaLab);
+        metaWrap.appendChild(pre);
+        eventDetailBody.appendChild(metaWrap);
+      }
+    }
+  }
+
+  function hideRejectPanel() {
+    if (rejectReasonPanel) {
+      rejectReasonPanel.hidden = true;
+    }
+    if (rejectReasonInput) {
+      rejectReasonInput.value = '';
     }
   }
 
@@ -2767,6 +3348,14 @@ body {
       li.appendChild(markerWrap);
       li.appendChild(desc);
       li.appendChild(dur);
+      li.setAttribute('data-event-index', String(i));
+      li.addEventListener('click', function () {
+        renderEventDetail(i, events, stepNames);
+        eventStreamEl.querySelectorAll('.event-stream-row.is-selected').forEach(function (el) {
+          el.classList.remove('is-selected');
+        });
+        li.classList.add('is-selected');
+      });
       eventStreamEl.appendChild(li);
     }
 
@@ -2853,8 +3442,12 @@ body {
     approvalPanelError.textContent = '';
     btnApprove.disabled = false;
     btnReject.disabled = false;
+    if (btnRejectToggle) {
+      btnRejectToggle.disabled = false;
+    }
     rejectReasonInput.disabled = false;
     btnApprove.classList.remove('is-sequencing', 'is-done');
+    hideRejectPanel();
   }
 
   function renderApprovalReview(classification) {
@@ -3439,25 +4032,42 @@ body {
   function renderWorkflowList() {
     var items = filteredWorkflows();
     workflowListEl.innerHTML = '';
+    updateWorkflowListMeta();
 
     if (!workflowsListErrorEl.hidden) {
+      if (workflowsListLoading) {
+        workflowsListLoading.hidden = true;
+      }
       return;
     }
 
-    if (listLoadedOnce && workflows.length === 0) {
+    if (!listLoadedOnce) {
+      if (workflowsListLoading) {
+        workflowsListLoading.hidden = false;
+      }
+      workflowsEmptyEl.hidden = true;
+      workflowListEl.hidden = true;
+      return;
+    }
+
+    if (workflowsListLoading) {
+      workflowsListLoading.hidden = true;
+    }
+
+    if (workflows.length === 0) {
       workflowsEmptyEl.hidden = false;
       workflowListEl.hidden = true;
       return;
     }
 
-    if (workflowsListErrorEl.hidden && listLoadedOnce && workflows.length > 0 && items.length === 0) {
+    if (items.length === 0) {
       workflowsEmptyEl.hidden = true;
       workflowListEl.hidden = false;
-      var li = document.createElement('li');
-      li.className = 'placeholder-text';
-      li.style.padding = 'var(--space-4) 0';
-      li.textContent = 'No workflows match this filter.';
-      workflowListEl.appendChild(li);
+      var emptyLi = document.createElement('li');
+      emptyLi.className = 'placeholder-text';
+      emptyLi.style.padding = 'var(--space-4) 0';
+      emptyLi.textContent = 'No workflows match this filter.';
+      workflowListEl.appendChild(emptyLi);
       return;
     }
 
@@ -3479,8 +4089,12 @@ body {
       var subj = document.createElement('p');
       subj.className = 'workflow-subject';
       subj.textContent = wf.subject || wf.customer_id;
+      var stepHint = document.createElement('p');
+      stepHint.className = 'workflow-row-step';
+      stepHint.textContent = workflowListProgressLabel(wf);
       main.appendChild(idEl);
       main.appendChild(subj);
+      main.appendChild(stepHint);
 
       var meta = document.createElement('div');
       meta.className = 'workflow-row-meta';
@@ -3489,22 +4103,34 @@ body {
       var dot = document.createElement('span');
       dot.className = 'status-dot';
       dot.setAttribute('aria-hidden', 'true');
-      dot.textContent = wf.status === 'completed' ? '✓' : '●';
+      if (wf.status === 'completed') {
+        dot.textContent = '✓';
+      } else if (wf.status === 'failed' || wf.status === 'cancelled') {
+        dot.textContent = '×';
+      } else {
+        dot.textContent = '●';
+      }
       status.appendChild(dot);
-      status.appendChild(document.createTextNode(statusLabel(wf)));
+      status.appendChild(document.createTextNode(workflowStatusShort(wf)));
+      meta.appendChild(status);
+
       var dur = document.createElement('p');
       dur.className = 'workflow-duration';
-      dur.textContent = durationDisplay(wf);
-      meta.appendChild(status);
-      meta.appendChild(dur);
+      dur.textContent = formatDetailDurationMs(wf.duration_millis);
+      var progress = document.createElement('p');
+      progress.className = 'workflow-row-progress';
+      if (wf.status === 'completed') {
+        progress.textContent = wf.step_count + ' steps';
+      } else if (wf.current_step_name) {
+        progress.textContent = wf.current_step_name;
+      } else {
+        progress.textContent = wf.step_count + ' steps';
+      }
 
       row.appendChild(main);
       row.appendChild(meta);
-
-      var steps = document.createElement('p');
-      steps.className = 'workflow-steps';
-      steps.textContent = wf.step_count + (wf.step_count === 1 ? ' step' : ' steps');
-      main.appendChild(steps);
+      row.appendChild(dur);
+      row.appendChild(progress);
 
       row.addEventListener('click', function () {
         navigateTo('/workflows/' + encodeURIComponent(wf.id));
@@ -3527,6 +4153,10 @@ body {
   }
 
   function fetchWorkflows() {
+    if (listFetchInFlight) {
+      return Promise.resolve();
+    }
+    listFetchInFlight = true;
     return fetch('/workflows')
       .then(function (r) {
         if (!r.ok) {
@@ -3542,10 +4172,19 @@ body {
         if (route.section === 'workflows' && !route.workflowId) {
           renderWorkflowList();
         }
+        if (route.section === 'observability') {
+          renderObservability();
+        }
       })
       .catch(function (err) {
         listLoadedOnce = true;
         setListError(err.message || 'Request failed.');
+        if (workflowsListLoading) {
+          workflowsListLoading.hidden = true;
+        }
+      })
+      .finally(function () {
+        listFetchInFlight = false;
       });
   }
 
@@ -3564,7 +4203,7 @@ body {
     }
   }
 
-  function renderWorkflowDetailHeader(wf) {
+  function renderWorkflowDetailHeader(wf, events, stepNames) {
     detailWorkflowId.textContent = wf.id;
     detailWorkflowSubject.textContent = wf.subject || '';
     detailWorkflowStatus.className = 'detail-status is-' + wf.status;
@@ -3572,9 +4211,25 @@ body {
     var dot = document.createElement('span');
     dot.className = 'status-dot';
     dot.setAttribute('aria-hidden', 'true');
-    dot.textContent = wf.status === 'completed' ? '✓' : '●';
+    if (wf.status === 'completed') {
+      dot.textContent = '✓';
+    } else if (wf.status === 'failed' || wf.status === 'cancelled') {
+      dot.textContent = '×';
+    } else {
+      dot.textContent = '●';
+    }
     detailWorkflowStatus.appendChild(dot);
-    detailWorkflowStatus.appendChild(document.createTextNode(statusLabel(wf)));
+    detailWorkflowStatus.appendChild(document.createTextNode(workflowStatusShort(wf)));
+
+    if (detailCurrentStep) {
+      if (wf.current_step_name && wf.status !== 'completed') {
+        detailCurrentStep.hidden = false;
+        detailCurrentStep.textContent = wf.current_step_name;
+      } else {
+        detailCurrentStep.hidden = true;
+        detailCurrentStep.textContent = '';
+      }
+    }
 
     detailWorkflowMeta.innerHTML = '';
     var started = document.createElement('span');
@@ -3583,6 +4238,22 @@ body {
     dur.innerHTML = 'Duration <strong>' + formatDetailDurationMs(wf.duration_millis) + '</strong>';
     detailWorkflowMeta.appendChild(started);
     detailWorkflowMeta.appendChild(dur);
+    if (events && events.length && stepNames && stepNames.length) {
+      var activeIdx =
+        wf.status === 'waiting' && wf.waiting_step != null
+          ? wf.waiting_step
+          : wf.current_step_name
+            ? stepIndexByName(stepNames, wf.current_step_name)
+            : null;
+      if (activeIdx != null && activeIdx >= 0) {
+        var attemptNum = stepAttemptFromEvents(events, activeIdx);
+        if (attemptNum != null) {
+          var att = document.createElement('span');
+          att.innerHTML = 'Attempt <strong>' + attemptNum + '</strong>';
+          detailWorkflowMeta.appendChild(att);
+        }
+      }
+    }
 
     detailRespanLinkEl.href = respanTraceUrl(wf.id);
   }
@@ -3621,7 +4292,7 @@ body {
         var events = Array.isArray(parts[1]) ? parts[1] : [];
         var stepNames = parts[2];
         var key = detailRenderKey(wf, events, stepNames);
-        renderWorkflowDetailHeader(wf);
+        renderWorkflowDetailHeader(wf, events, stepNames);
         clearDetailError();
         if (!stepNames.length) {
           detailExecutionLayout.hidden = true;
@@ -3667,6 +4338,7 @@ body {
     selectedStepIndex = null;
     eventStreamEl.innerHTML = '';
     closeStepInspector();
+    closeEventDetail();
     detailWorkflowId.textContent = id;
     detailWorkflowSubject.textContent = '';
     detailWorkflowStatus.textContent = '';
@@ -3702,6 +4374,7 @@ body {
 
   function openNewWorkflowModal() {
     newWorkflowError.hidden = true;
+    document.getElementById('wfId').value = generateWorkflowId();
     newWorkflowModal.classList.add('is-open');
     newWorkflowModal.setAttribute('aria-hidden', 'false');
     document.getElementById('wfCustomer').focus();
@@ -3724,7 +4397,12 @@ body {
     var customerId = document.getElementById('wfCustomer').value.trim();
     var subject = document.getElementById('wfSubject').value.trim();
     var body = document.getElementById('wfBody').value.trim();
-    var id = generateWorkflowId();
+    var id = document.getElementById('wfId').value.trim();
+    if (!id) {
+      newWorkflowError.hidden = false;
+      newWorkflowError.textContent = 'Workflow ID is required.';
+      return;
+    }
     var fullBody = body;
     if (handle) {
       fullBody = handle + '\n\n' + body;
@@ -3848,9 +4526,24 @@ body {
     approvalPanelError.hidden = true;
     btnApprove.disabled = true;
     btnReject.disabled = true;
+    if (btnRejectToggle) {
+      btnRejectToggle.disabled = true;
+    }
     rejectReasonInput.disabled = true;
     var reason = rejectReasonInput.value.trim();
-    var body = reason || 'rejected';
+    if (!reason) {
+      approvalActionInFlight = false;
+      approvalPanelError.hidden = false;
+      approvalPanelError.textContent = 'Enter a rejection reason.';
+      btnApprove.disabled = false;
+      btnReject.disabled = false;
+      if (btnRejectToggle) {
+        btnRejectToggle.disabled = false;
+      }
+      rejectReasonInput.disabled = false;
+      return;
+    }
+    var body = reason;
     postApprovalDecision(id, '/reject', body).then(function (r) {
       if (r.status === 404) {
         throw new Error('This workflow is not waiting for approval.');
@@ -3890,24 +4583,69 @@ body {
 
   btnCloseInspector.addEventListener('click', closeStepInspector);
 
+  if (btnCloseEventDetail) {
+    btnCloseEventDetail.addEventListener('click', closeEventDetail);
+  }
+
+  if (btnCopyWorkflowId) {
+    btnCopyWorkflowId.addEventListener('click', function () {
+      var id = detailWorkflowIdCurrent || detailWorkflowId.textContent;
+      if (!id || !navigator.clipboard) {
+        return;
+      }
+      navigator.clipboard.writeText(id).then(function () {
+        btnCopyWorkflowId.textContent = 'Copied';
+        window.setTimeout(function () {
+          btnCopyWorkflowId.textContent = 'Copy';
+        }, 1200);
+      });
+    });
+  }
+
+  if (btnRejectToggle) {
+    btnRejectToggle.addEventListener('click', function () {
+      if (approvalActionInFlight) {
+        return;
+      }
+      rejectReasonPanel.hidden = false;
+      rejectReasonInput.focus();
+    });
+  }
+
+  if (btnRejectCancel) {
+    btnRejectCancel.addEventListener('click', function () {
+      hideRejectPanel();
+    });
+  }
+
+  if (btnOpenCommandPalette) {
+    btnOpenCommandPalette.addEventListener('click', function () {
+      if (isCommandPaletteOpen) {
+        closeCommandPalette();
+      } else {
+        openCommandPalette();
+      }
+    });
+  }
+
   var commandPaletteBackdrop = document.getElementById('commandPaletteBackdrop');
   var commandPaletteInput = document.getElementById('commandPaletteInput');
   var commandPaletteList = document.getElementById('commandPaletteList');
-  var commandPaletteOpen = false;
+  var isCommandPaletteOpen = false;
   var commandPaletteSelectedIndex = -1;
 
-  function commandPaletteClose() {
+  function closeCommandPalette() {
     commandPaletteBackdrop.classList.remove('is-open');
     commandPaletteBackdrop.setAttribute('aria-hidden', 'true');
-    commandPaletteOpen = false;
+    isCommandPaletteOpen = false;
     commandPaletteInput.value = '';
     commandPaletteSelectedIndex = -1;
   }
 
-  function commandPaletteOpen() {
+  function openCommandPalette() {
     commandPaletteBackdrop.classList.add('is-open');
     commandPaletteBackdrop.setAttribute('aria-hidden', 'false');
-    commandPaletteOpen = true;
+    isCommandPaletteOpen = true;
     commandPaletteInput.focus();
     commandPaletteRender();
   }
@@ -3918,12 +4656,13 @@ body {
 
     if (query.length === 0) {
       items.push({ type: 'section', label: 'New workflow', hint: '', action: openNewWorkflowModal });
-      items.push({ type: 'section', label: 'Running workflows', hint: '', action: function() { navigateTo('/workflows'); setTimeout(function() { listFilter = 'running'; filterChips.forEach(function(c) { c.classList.toggle('is-active', c.getAttribute('data-filter') === 'running'); }); renderWorkflowList(); }, 0); commandPaletteClose(); } });
-      items.push({ type: 'section', label: 'Waiting workflows', hint: '', action: function() { navigateTo('/workflows'); setTimeout(function() { listFilter = 'waiting'; filterChips.forEach(function(c) { c.classList.toggle('is-active', c.getAttribute('data-filter') === 'waiting'); }); renderWorkflowList(); }, 0); commandPaletteClose(); } });
-      items.push({ type: 'section', label: 'Failed workflows', hint: '', action: function() { navigateTo('/workflows'); setTimeout(function() { listFilter = 'failed'; filterChips.forEach(function(c) { c.classList.toggle('is-active', c.getAttribute('data-filter') === 'failed'); }); renderWorkflowList(); }, 0); commandPaletteClose(); } });
+      items.push({ type: 'section', label: 'Running workflows', hint: '', action: function() { navigateTo('/workflows'); setTimeout(function() { listFilter = 'running'; filterChips.forEach(function(c) { c.classList.toggle('is-active', c.getAttribute('data-filter') === 'running'); }); renderWorkflowList(); }, 0); closeCommandPalette(); } });
+      items.push({ type: 'section', label: 'Waiting workflows', hint: '', action: function() { navigateTo('/workflows'); setTimeout(function() { listFilter = 'waiting'; filterChips.forEach(function(c) { c.classList.toggle('is-active', c.getAttribute('data-filter') === 'waiting'); }); renderWorkflowList(); }, 0); closeCommandPalette(); } });
+      items.push({ type: 'section', label: 'Failed workflows', hint: '', action: function() { navigateTo('/workflows'); setTimeout(function() { listFilter = 'failed'; filterChips.forEach(function(c) { c.classList.toggle('is-active', c.getAttribute('data-filter') === 'failed'); }); renderWorkflowList(); }, 0); closeCommandPalette(); } });
       items.push({ type: 'divider' });
-      items.push({ type: 'section', label: 'Open Observability', hint: '', action: function() { navigateTo('/observability'); commandPaletteClose(); } });
-      items.push({ type: 'section', label: 'Open Evaluations', hint: '', action: function() { navigateTo('/evaluations'); commandPaletteClose(); } });
+      items.push({ type: 'section', label: 'Open Observability', hint: '', action: function() { navigateTo('/observability'); closeCommandPalette(); } });
+      items.push({ type: 'section', label: 'Open Evaluations', hint: '', action: function() { navigateTo('/evaluations'); closeCommandPalette(); } });
+      items.push({ type: 'section', label: 'Open Settings', hint: '', action: function() { navigateTo('/settings'); closeCommandPalette(); } });
     } else {
       var workflowMatches = workflows.filter(function(wf) {
         return wf.id.toLowerCase().indexOf(query) !== -1 || (wf.subject && wf.subject.toLowerCase().indexOf(query) !== -1);
@@ -3936,15 +4675,15 @@ body {
             type: 'workflow',
             label: wf.id,
             hint: wf.subject || wf.customer_id || '',
-            action: function() { navigateTo('/workflows/' + encodeURIComponent(wf.id)); commandPaletteClose(); }
+            action: function() { navigateTo('/workflows/' + encodeURIComponent(wf.id)); closeCommandPalette(); }
           });
         });
       }
 
       var sections = [
         { label: 'New workflow', action: openNewWorkflowModal },
-        { label: 'Observability', action: function() { navigateTo('/observability'); commandPaletteClose(); } },
-        { label: 'Evaluations', action: function() { navigateTo('/evaluations'); commandPaletteClose(); } }
+        { label: 'Observability', action: function() { navigateTo('/observability'); closeCommandPalette(); } },
+        { label: 'Evaluations', action: function() { navigateTo('/evaluations'); closeCommandPalette(); } }
       ];
 
       var matchedSections = sections.filter(function(s) {
@@ -4004,14 +4743,14 @@ body {
 
   commandPaletteBackdrop.addEventListener('click', function(e) {
     if (e.target === commandPaletteBackdrop) {
-      commandPaletteClose();
+      closeCommandPalette();
     }
   });
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
-      if (commandPaletteOpen) {
-        commandPaletteClose();
+      if (isCommandPaletteOpen) {
+        closeCommandPalette();
         return;
       }
       if (newWorkflowModal.classList.contains('is-open')) {
@@ -4026,27 +4765,27 @@ body {
 
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();
-      if (commandPaletteOpen) {
-        commandPaletteClose();
+      if (isCommandPaletteOpen) {
+        closeCommandPalette();
       } else {
-        commandPaletteOpen();
+        openCommandPalette();
       }
       return;
     }
 
-    if (e.key === '/' && !commandPaletteOpen) {
+    if (e.key === '/' && !isCommandPaletteOpen) {
       var activeEl = document.activeElement;
       if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
         return;
       }
       e.preventDefault();
-      commandPaletteOpen();
+      openCommandPalette();
       commandPaletteInput.value = '/';
       commandPaletteRender();
       return;
     }
 
-    if (commandPaletteOpen && e.key === 'ArrowDown') {
+    if (isCommandPaletteOpen && e.key === 'ArrowDown') {
       e.preventDefault();
       var items = commandPaletteList.querySelectorAll('.command-palette-item');
       commandPaletteSelectedIndex = Math.min(commandPaletteSelectedIndex + 1, items.length - 1);
@@ -4058,7 +4797,7 @@ body {
       return;
     }
 
-    if (commandPaletteOpen && e.key === 'ArrowUp') {
+    if (isCommandPaletteOpen && e.key === 'ArrowUp') {
       e.preventDefault();
       var items = commandPaletteList.querySelectorAll('.command-palette-item');
       commandPaletteSelectedIndex = Math.max(commandPaletteSelectedIndex - 1, 0);
@@ -4070,7 +4809,7 @@ body {
       return;
     }
 
-    if (commandPaletteOpen && e.key === 'Enter') {
+    if (isCommandPaletteOpen && e.key === 'Enter') {
       e.preventDefault();
       var items = commandPaletteList.querySelectorAll('.command-palette-item');
       if (commandPaletteSelectedIndex >= 0 && commandPaletteSelectedIndex < items.length) {
