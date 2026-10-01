@@ -22,7 +22,7 @@ use crate::classifier::{Classifier, MockClassifier, OpenAiClassifier};
 use crate::domain::Ticket;
 use crate::registry::WorkflowRegistry;
 use crate::steps::build_step_bodies;
-use crate::ticket_system::{InMemoryTicketSystem, TicketSystem};
+use crate::ticket_system::{SqliteTicketSystem, TicketSystem};
 use crate::tracing_sink::{NoopSink, RespanSink, TraceSink, spawn_workflow_trace_batch};
 use crate::webhook::agentmail_webhook;
 use crate::workflow_def::ticket_workflow;
@@ -212,7 +212,8 @@ impl ApiState {
                 )
             };
 
-        let ticket_system: Arc<dyn TicketSystem> = Arc::new(InMemoryTicketSystem::new());
+        let ticket_system: Arc<dyn TicketSystem> =
+            Arc::new(SqliteTicketSystem::new(db_path).expect("ticket system"));
 
         let trace_sink: Arc<dyn TraceSink> = match std::env::var("RESPAN_API_KEY")
             .ok()
