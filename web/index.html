@@ -571,6 +571,7 @@ body {
 }
 
 .exec-connector {
+  position: relative;
   width: 1px;
   height: 28px;
   background: var(--border);
@@ -579,6 +580,99 @@ body {
 
 .exec-connector.is-passed {
   background: var(--border-strong);
+}
+
+.exec-connector.is-pulse::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 3px;
+  height: 3px;
+  margin-left: -1.5px;
+  border-radius: 50%;
+  background: var(--running);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--running) 45%, transparent);
+  pointer-events: none;
+  animation: exec-connector-pulse 0.55s ease-out forwards;
+}
+
+@keyframes exec-connector-pulse {
+  0% {
+    top: 0;
+    opacity: 0.95;
+  }
+  100% {
+    top: calc(100% - 3px);
+    opacity: 0;
+  }
+}
+
+@keyframes exec-running-ring {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes exec-step-wake {
+  0% {
+    border-color: var(--border);
+    transform: scale(0.985);
+  }
+  45% {
+    border-color: color-mix(in srgb, var(--running) 40%, var(--border));
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.exec-step--wake {
+  animation: exec-step-wake 0.38s ease-out;
+}
+
+@keyframes exec-indicator-complete {
+  0% {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--success);
+    border-radius: 50%;
+    border-top-color: transparent;
+    border-right-color: transparent;
+    font-size: 0;
+    transform: rotate(-90deg);
+  }
+  50% {
+    transform: rotate(180deg);
+  }
+  72% {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--success);
+    border-radius: 50%;
+    border-top-color: transparent;
+    font-size: 0;
+    transform: rotate(270deg);
+  }
+  88% {
+    width: 18px;
+    height: 18px;
+    border: none;
+    font-size: 0;
+    transform: rotate(270deg);
+  }
+  100% {
+    width: auto;
+    height: auto;
+    border: none;
+    font-size: 16px;
+    color: var(--success);
+    transform: none;
+  }
+}
+
+.exec-step--complete-enter .exec-step-indicator-inner {
+  animation: exec-indicator-complete 0.42s ease-out forwards;
 }
 
 .exec-step {
@@ -682,6 +776,7 @@ body {
   border-radius: 50%;
   border-top-color: transparent;
   font-size: 0;
+  animation: exec-running-ring 0.85s linear infinite;
 }
 
 .exec-step--waiting {
@@ -1147,6 +1242,8 @@ body {
   var workflowStepNamesPromise = null;
   var detailWorkflowIdCurrent = null;
   var lastDetailRenderKey = '';
+  var lastRenderedStepStates = null;
+  var lastRenderedEventCount = 0;
 
   function parseHashRoute() {
     var raw = (location.hash || '#/workflows').replace(/^#/, '');
@@ -1411,9 +1508,111 @@ body {
     );
   }
 
-  function renderExecutionGraph(stepNames, events) {
-    var derived = deriveStepStates(events, stepNames.length);
-    var states = derived.states;
+  function graphStepEl(index) {
+    var item = execGraphEl.children[index];
+    return item ? item.querySelector('.exec-step') : null;
+  }
+
+  function graphConnectorEl(index) {
+    var item = execGraphEl.children[index];
+    return item ? item.querySelector('.exec-connector') : null;
+  }
+
+  function stepStateClass(state) {
+    return 'exec-step--' + (state || 'idle');
+  }
+
+  function setStepIndicator(inner, state) {
+    inner.textContent = '';
+    var glyph = STEP_STATE_INDICATORS[state];
+    if (glyph) {
+      inner.textContent = glyph;
+    }
+  }
+
+  function applyStepState(stepEl, state, options) {
+    var opts = options || {};
+    var stateClasses = [
+      'exec-step--idle',
+      'exec-step--running',
+      'exec-step--waiting',
+      'exec-step--completed',
+      'exec-step--failed',
+      'exec-step--cancelled',
+      'exec-step--recovering',
+      'exec-step--retry',
+      'exec-step--timeout'
+    ];
+    stateClasses.forEach(function (c) {
+      stepEl.classList.remove(c);
+    });
+    stepEl.classList.remove('exec-step--wake');
+    stepEl.classList.add(stepStateClass(state));
+
+    var label = stepEl.querySelector('.exec-step-label');
+    if (label) {
+      label.textContent = STEP_STATE_LABELS[state] || state;
+    }
+
+    var inner = stepEl.querySelector('.exec-step-indicator-inner');
+    if (!inner) {
+      return;
+    }
+
+    if (opts.completeEnter) {
+      stepEl.classList.remove('exec-step--complete-enter');
+      setStepIndicator(inner, 'completed');
+      void stepEl.offsetWidth;
+      stepEl.classList.add('exec-step--complete-enter');
+      window.setTimeout(function () {
+        stepEl.classList.remove('exec-step--complete-enter');
+      }, 450);
+      return;
+    }
+
+    stepEl.classList.remove('exec-step--complete-enter');
+    setStepIndicator(inner, state);
+  }
+
+  function updateConnectorPassed(stepIndex, stepState) {
+    var conn = graphConnectorEl(stepIndex);
+    if (!conn) {
+      return;
+    }
+    conn.classList.toggle('is-passed', stepState === 'completed');
+  }
+
+  function pulseConnector(stepIndex, pulseOnce) {
+    if (pulseOnce[stepIndex]) {
+      return;
+    }
+    pulseOnce[stepIndex] = true;
+    var conn = graphConnectorEl(stepIndex);
+    if (!conn) {
+      return;
+    }
+    conn.classList.remove('is-pulse');
+    void conn.offsetWidth;
+    conn.classList.add('is-pulse');
+    function cleanup() {
+      conn.classList.remove('is-pulse');
+      conn.removeEventListener('animationend', cleanup);
+    }
+    conn.addEventListener('animationend', cleanup);
+  }
+
+  function triggerStepActivate(stepEl) {
+    stepEl.classList.remove('exec-step--wake');
+    void stepEl.offsetWidth;
+    stepEl.classList.add('exec-step--wake');
+    function done() {
+      stepEl.classList.remove('exec-step--wake');
+      stepEl.removeEventListener('animationend', done);
+    }
+    stepEl.addEventListener('animationend', done);
+  }
+
+  function buildExecutionGraph(stepNames, states) {
     execGraphEl.innerHTML = '';
 
     stepNames.forEach(function (name, index) {
@@ -1422,7 +1621,7 @@ body {
       li.className = 'exec-graph-item';
 
       var step = document.createElement('div');
-      step.className = 'exec-step exec-step--' + state;
+      step.className = 'exec-step ' + stepStateClass(state);
       step.setAttribute('data-step-index', String(index));
 
       var title = document.createElement('p');
@@ -1442,10 +1641,7 @@ body {
       var inner = document.createElement('span');
       inner.className = 'exec-step-indicator-inner';
       inner.setAttribute('aria-hidden', 'true');
-      var glyph = STEP_STATE_INDICATORS[state];
-      if (glyph) {
-        inner.textContent = glyph;
-      }
+      setStepIndicator(inner, state);
       indicator.appendChild(inner);
 
       step.appendChild(title);
@@ -1466,6 +1662,109 @@ body {
 
       execGraphEl.appendChild(li);
     });
+  }
+
+  function playGraphMotionForEvents(stepNames, events, fromEventIndex) {
+    var pulseOnce = {};
+    var completedHandled = {};
+    var stepCount = stepNames.length;
+
+    for (var e = fromEventIndex; e < events.length; e++) {
+      var u = unwrapEvent(events[e]);
+      if (!u) {
+        continue;
+      }
+      var idx = eventStepIndex(u.kind, u.payload);
+      if (idx == null || idx < 0 || idx >= stepCount) {
+        continue;
+      }
+      var stepEl = graphStepEl(idx);
+      if (!stepEl) {
+        continue;
+      }
+
+      if (u.kind === 'StepStarted') {
+        triggerStepActivate(stepEl);
+        if (idx > 0) {
+          pulseConnector(idx - 1, pulseOnce);
+        }
+      } else if (u.kind === 'StepCompleted') {
+        if (!completedHandled[idx]) {
+          completedHandled[idx] = true;
+          applyStepState(stepEl, 'completed', { completeEnter: true });
+          if (idx < stepCount - 1) {
+            pulseConnector(idx, pulseOnce);
+          }
+        }
+      }
+    }
+
+    return completedHandled;
+  }
+
+  function updateExecutionGraph(stepNames, events) {
+    var derived = deriveStepStates(events, stepNames.length);
+    var states = derived.states;
+    var prev = lastRenderedStepStates;
+
+    if (!prev || execGraphEl.children.length !== stepNames.length) {
+      buildExecutionGraph(stepNames, states);
+      lastRenderedStepStates = states.slice();
+      lastRenderedEventCount = events.length;
+      return;
+    }
+
+    var prevEventCount = lastRenderedEventCount;
+    var changed = events.length !== prevEventCount;
+    if (!changed) {
+      for (var k = 0; k < stepNames.length; k++) {
+        if (prev[k] !== states[k]) {
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    var completedHandled = playGraphMotionForEvents(stepNames, events, prevEventCount);
+    var pulseOnce = {};
+
+    for (var i = 0; i < stepNames.length; i++) {
+      if (prev[i] === states[i]) {
+        continue;
+      }
+      var stepEl = graphStepEl(i);
+      if (!stepEl) {
+        continue;
+      }
+      if (completedHandled[i]) {
+        continue;
+      }
+      if (states[i] === 'completed') {
+        applyStepState(stepEl, states[i], { completeEnter: true });
+        if (i < stepNames.length - 1) {
+          pulseConnector(i, pulseOnce);
+        }
+      } else {
+        applyStepState(stepEl, states[i]);
+        if (prev[i] === 'idle' && states[i] === 'running') {
+          triggerStepActivate(stepEl);
+          if (i > 0) {
+            pulseConnector(i - 1, pulseOnce);
+          }
+        }
+      }
+    }
+
+    for (var j = 0; j < stepNames.length; j++) {
+      updateConnectorPassed(j, states[j]);
+    }
+
+    lastRenderedStepStates = states.slice();
+    lastRenderedEventCount = events.length;
   }
 
   function formatRelativeAgo(millis) {
@@ -1722,7 +2021,7 @@ body {
         }
         execGraphWrap.hidden = false;
         if (key !== lastDetailRenderKey) {
-          renderExecutionGraph(stepNames, events);
+          updateExecutionGraph(stepNames, events);
           lastDetailRenderKey = key;
         }
       })
@@ -1734,6 +2033,8 @@ body {
   function loadWorkflowDetail(id) {
     detailWorkflowIdCurrent = id;
     lastDetailRenderKey = '';
+    lastRenderedStepStates = null;
+    lastRenderedEventCount = 0;
     detailWorkflowId.textContent = id;
     detailWorkflowSubject.textContent = '';
     detailWorkflowStatus.textContent = '';
