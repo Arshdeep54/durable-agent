@@ -703,13 +703,19 @@ fn event_to_json(event: &Event) -> serde_json::Value {
         Event::WorkflowCompleted { workflow_id } => serde_json::json!({
             "WorkflowCompleted": { "workflow_id": workflow_id }
         }),
-        Event::WorkflowFailed { workflow_id, reason } => serde_json::json!({
+        Event::WorkflowFailed {
+            workflow_id,
+            reason,
+        } => serde_json::json!({
             "WorkflowFailed": {
                 "workflow_id": workflow_id,
                 "reason": reason,
             }
         }),
-        Event::WorkflowCancelled { workflow_id, reason } => serde_json::json!({
+        Event::WorkflowCancelled {
+            workflow_id,
+            reason,
+        } => serde_json::json!({
             "WorkflowCancelled": {
                 "workflow_id": workflow_id,
                 "reason": reason,
