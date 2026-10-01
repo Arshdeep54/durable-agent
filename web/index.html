@@ -1531,6 +1531,43 @@ body {
   margin: 0 0 var(--space-3);
 }
 
+.command-palette-item {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.command-palette-item:hover {
+  background: rgba(20, 20, 19, 0.04);
+}
+
+.command-palette-item.is-active {
+  background: rgba(20, 20, 19, 0.08);
+}
+
+.command-palette-item-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.command-palette-item-hint {
+  font-size: 11px;
+  color: var(--fg-secondary);
+  flex-shrink: 0;
+  margin-left: var(--space-3);
+}
+
 @media (max-width: 720px) {
   :root {
     --sidebar-w: 100%;
@@ -1621,6 +1658,9 @@ body {
           <li class="nav-item">
             <button type="button" class="nav-link" data-section="evaluations">Evaluations</button>
           </li>
+          <li class="nav-item">
+            <button type="button" class="nav-link" data-section="settings" aria-label="Settings">⚙</button>
+          </li>
         </ul>
       </nav>
     </aside>
@@ -1661,6 +1701,7 @@ body {
             <p class="workflow-subject" id="detailWorkflowSubject"></p>
             <p class="detail-status" id="detailWorkflowStatus"></p>
             <p class="detail-meta" id="detailWorkflowMeta"></p>
+            <p id="detailRespanLink" style="margin-top: var(--space-3); font-size: 13px;"><a id="detailRespanLinkEl" href="#" target="_blank" rel="noopener noreferrer" style="color: var(--running); text-decoration: none;">Open trace in Respan ↗</a></p>
           </div>
           <div id="detailWorkflowError" class="detail-error" hidden>
             <h3>Couldn't load workflow</h3>
@@ -1708,17 +1749,56 @@ body {
       <section class="main-section" id="section-observability" aria-labelledby="title-observability" hidden>
         <h2 class="section-title" id="title-observability">Observability</h2>
         <div class="placeholder-block">
-          <p class="placeholder-text">Traces and Respan links.</p>
+          <p class="placeholder-text">Detailed traces and system behavior.</p>
+          <p style="margin-top: var(--space-3); color: var(--fg-secondary); font-size: 13px; line-height: 1.6;">
+            Use <a href="https://respan.ai" target="_blank" rel="noopener noreferrer" style="color: var(--running); text-decoration: none;">Respan</a> for deeper observability into workflow execution, including detailed traces, timing analysis, and performance metrics.
+          </p>
+          <p style="margin-top: var(--space-3); color: var(--fg-secondary); font-size: 13px;">
+            When viewing a workflow, click "Open trace in Respan ↗" in the step inspector to view detailed execution traces.
+          </p>
         </div>
       </section>
 
       <section class="main-section" id="section-evaluations" aria-labelledby="title-evaluations" hidden>
         <h2 class="section-title" id="title-evaluations">Evaluations</h2>
         <div class="placeholder-block">
-          <p class="placeholder-text">Runs, scores, and failed cases.</p>
+          <p class="placeholder-text">Reliability test scenarios.</p>
+          <p style="margin-top: var(--space-4); color: var(--fg-secondary); font-size: 13px; line-height: 1.6;">
+            The test suite covers critical reliability scenarios:
+          </p>
+          <ol id="evalsList" style="margin-top: var(--space-3); color: var(--fg); font-size: 13px; line-height: 1.8; padding-left: var(--space-5);"></ol>
+          <p style="margin-top: var(--space-5); color: var(--fg-secondary); font-size: 13px; line-height: 1.6;">
+            To run the full evaluation suite, execute:
+          </p>
+          <pre style="margin-top: var(--space-2); padding: var(--space-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--mono); font-size: 12px; overflow-x: auto;">cargo test reliability_evals</pre>
+        </div>
+      </section>
+
+      <section class="main-section" id="section-settings" aria-labelledby="title-settings" hidden>
+        <h2 class="section-title" id="title-settings">Settings</h2>
+        <div class="placeholder-block">
+          <div style="display: flex; flex-direction: column; gap: var(--space-3);">
+            <div>
+              <p style="font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 var(--space-2);">Connection</p>
+              <p id="settingsConnectionStatus" style="font-size: 13px; color: var(--fg); margin: 0;">Checking…</p>
+            </div>
+            <div>
+              <p style="font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 var(--space-2);">API Base</p>
+              <p style="font-size: 12px; font-family: var(--mono); color: var(--fg-secondary); margin: 0;" id="settingsApiBase">—</p>
+            </div>
+          </div>
         </div>
       </section>
     </main>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="commandPaletteBackdrop" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="commandPaletteTitle" style="max-width: 520px; padding: 0; overflow: hidden; display: flex; flex-direction: column;">
+    <div style="padding: var(--space-4); border-bottom: 1px solid var(--border);">
+      <input type="search" id="commandPaletteInput" placeholder="Search or type command…" aria-label="Search workflows or commands" style="width: 100%; font-family: var(--sans); font-size: 14px; padding: 10px; border: none; outline: none; background: transparent; color: var(--fg);" autocomplete="off">
+    </div>
+    <ol id="commandPaletteList" style="list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; flex: 1;"></ol>
   </div>
 </div>
 
@@ -1761,13 +1841,51 @@ body {
   var sections = {
     workflows: document.getElementById('section-workflows'),
     observability: document.getElementById('section-observability'),
-    evaluations: document.getElementById('section-evaluations')
+    evaluations: document.getElementById('section-evaluations'),
+    settings: document.getElementById('section-settings')
   };
+
+  var evalsList = document.getElementById('evalsList');
+  var settingsConnectionStatus = document.getElementById('settingsConnectionStatus');
+  var settingsApiBase = document.getElementById('settingsApiBase');
+
+  var evaluations = [
+    { name: 'eval_normal_completion', desc: 'Verifies workflows complete successfully end-to-end' },
+    { name: 'eval_worker_crash_during_step', desc: 'Validates recovery when worker crashes mid-execution' },
+    { name: 'eval_crash_before_completion_persistence', desc: 'Ensures workflow state persists if worker crashes before completion' },
+    { name: 'eval_retryable_failure', desc: 'Tests automatic retry logic for transient failures' },
+    { name: 'eval_non_retryable_failure', desc: 'Verifies workflows properly fail for permanent errors' },
+    { name: 'eval_timeout', desc: 'Validates timeout handling and retry behavior' },
+    { name: 'eval_duplicate_run_while_waiting', desc: 'Ensures duplicate run requests are handled correctly' },
+    { name: 'eval_duplicate_approval_webhook', desc: 'Tests idempotency of duplicate approval webhooks' },
+    { name: 'eval_human_approval', desc: 'Validates human approval workflow integration' },
+    { name: 'eval_human_rejection', desc: 'Tests rejection path and workflow termination' },
+    { name: 'eval_restart_while_waiting', desc: 'Verifies restart behavior during approval wait' },
+    { name: 'eval_ticket_system_idempotency', desc: 'Ensures idempotent external system interactions' }
+  ];
+
+  function renderEvaluationsList() {
+    evalsList.innerHTML = '';
+    evaluations.forEach(function(e) {
+      var li = document.createElement('li');
+      li.style.marginBottom = 'var(--space-2)';
+      li.innerHTML = '<strong style="font-family: var(--mono); font-size: 12px;">' + e.name.replace('eval_', '') + '</strong><br>' + e.desc;
+      evalsList.appendChild(li);
+    });
+  }
+
+  function updateSettingsView() {
+    var isConnected = connectionEl.classList.contains('is-connected');
+    settingsConnectionStatus.textContent = isConnected ? 'Connected' : 'Disconnected';
+    settingsConnectionStatus.style.color = isConnected ? 'var(--success)' : 'var(--error)';
+    settingsApiBase.textContent = window.location.origin || 'localhost';
+  }
 
   function setConnection(connected) {
     connectionEl.classList.toggle('is-connected', connected);
     connectionEl.classList.toggle('is-disconnected', !connected);
     connectionLabel.textContent = connected ? 'Connected' : 'Disconnected';
+    updateSettingsView();
   }
 
   function checkConnection() {
@@ -1827,6 +1945,7 @@ body {
   var detailWorkflowSubject = document.getElementById('detailWorkflowSubject');
   var detailWorkflowStatus = document.getElementById('detailWorkflowStatus');
   var detailWorkflowMeta = document.getElementById('detailWorkflowMeta');
+  var detailRespanLinkEl = document.getElementById('detailRespanLinkEl');
   var detailWorkflowError = document.getElementById('detailWorkflowError');
   var detailWorkflowErrorMsg = document.getElementById('detailWorkflowErrorMsg');
   var detailWorkflowRetry = document.getElementById('detailWorkflowRetry');
@@ -3464,6 +3583,8 @@ body {
     dur.innerHTML = 'Duration <strong>' + formatDetailDurationMs(wf.duration_millis) + '</strong>';
     detailWorkflowMeta.appendChild(started);
     detailWorkflowMeta.appendChild(dur);
+
+    detailRespanLinkEl.href = respanTraceUrl(wf.id);
   }
 
   function setDetailError(message) {
@@ -3769,6 +3890,196 @@ body {
 
   btnCloseInspector.addEventListener('click', closeStepInspector);
 
+  var commandPaletteBackdrop = document.getElementById('commandPaletteBackdrop');
+  var commandPaletteInput = document.getElementById('commandPaletteInput');
+  var commandPaletteList = document.getElementById('commandPaletteList');
+  var commandPaletteOpen = false;
+  var commandPaletteSelectedIndex = -1;
+
+  function commandPaletteClose() {
+    commandPaletteBackdrop.classList.remove('is-open');
+    commandPaletteBackdrop.setAttribute('aria-hidden', 'true');
+    commandPaletteOpen = false;
+    commandPaletteInput.value = '';
+    commandPaletteSelectedIndex = -1;
+  }
+
+  function commandPaletteOpen() {
+    commandPaletteBackdrop.classList.add('is-open');
+    commandPaletteBackdrop.setAttribute('aria-hidden', 'false');
+    commandPaletteOpen = true;
+    commandPaletteInput.focus();
+    commandPaletteRender();
+  }
+
+  function commandPaletteRender() {
+    var query = commandPaletteInput.value.trim().toLowerCase();
+    var items = [];
+
+    if (query.length === 0) {
+      items.push({ type: 'section', label: 'New workflow', hint: '', action: openNewWorkflowModal });
+      items.push({ type: 'section', label: 'Running workflows', hint: '', action: function() { navigateTo('/workflows'); setTimeout(function() { listFilter = 'running'; filterChips.forEach(function(c) { c.classList.toggle('is-active', c.getAttribute('data-filter') === 'running'); }); renderWorkflowList(); }, 0); commandPaletteClose(); } });
+      items.push({ type: 'section', label: 'Waiting workflows', hint: '', action: function() { navigateTo('/workflows'); setTimeout(function() { listFilter = 'waiting'; filterChips.forEach(function(c) { c.classList.toggle('is-active', c.getAttribute('data-filter') === 'waiting'); }); renderWorkflowList(); }, 0); commandPaletteClose(); } });
+      items.push({ type: 'section', label: 'Failed workflows', hint: '', action: function() { navigateTo('/workflows'); setTimeout(function() { listFilter = 'failed'; filterChips.forEach(function(c) { c.classList.toggle('is-active', c.getAttribute('data-filter') === 'failed'); }); renderWorkflowList(); }, 0); commandPaletteClose(); } });
+      items.push({ type: 'divider' });
+      items.push({ type: 'section', label: 'Open Observability', hint: '', action: function() { navigateTo('/observability'); commandPaletteClose(); } });
+      items.push({ type: 'section', label: 'Open Evaluations', hint: '', action: function() { navigateTo('/evaluations'); commandPaletteClose(); } });
+    } else {
+      var workflowMatches = workflows.filter(function(wf) {
+        return wf.id.toLowerCase().indexOf(query) !== -1 || (wf.subject && wf.subject.toLowerCase().indexOf(query) !== -1);
+      }).slice(0, 5);
+
+      if (workflowMatches.length > 0) {
+        items.push({ type: 'divider', label: 'Workflows' });
+        workflowMatches.forEach(function(wf) {
+          items.push({
+            type: 'workflow',
+            label: wf.id,
+            hint: wf.subject || wf.customer_id || '',
+            action: function() { navigateTo('/workflows/' + encodeURIComponent(wf.id)); commandPaletteClose(); }
+          });
+        });
+      }
+
+      var sections = [
+        { label: 'New workflow', action: openNewWorkflowModal },
+        { label: 'Observability', action: function() { navigateTo('/observability'); commandPaletteClose(); } },
+        { label: 'Evaluations', action: function() { navigateTo('/evaluations'); commandPaletteClose(); } }
+      ];
+
+      var matchedSections = sections.filter(function(s) {
+        return s.label.toLowerCase().indexOf(query) !== -1;
+      });
+
+      if (matchedSections.length > 0) {
+        if (workflowMatches.length > 0) {
+          items.push({ type: 'divider' });
+        }
+        matchedSections.forEach(function(s) {
+          items.push({ type: 'section', label: s.label, hint: '', action: s.action });
+        });
+      }
+    }
+
+    commandPaletteList.innerHTML = '';
+    commandPaletteSelectedIndex = -1;
+
+    items.forEach(function(item, idx) {
+      if (item.type === 'divider') {
+        var div = document.createElement('li');
+        div.style.padding = 'var(--space-3) var(--space-4)';
+        div.style.fontSize = '10px';
+        div.style.fontWeight = '600';
+        div.style.letterSpacing = '0.06em';
+        div.style.textTransform = 'uppercase';
+        div.style.color = 'var(--fg-secondary)';
+        div.style.borderBottom = '1px solid var(--border)';
+        if (item.label) {
+          div.textContent = item.label;
+        } else {
+          div.style.height = '0';
+          div.style.padding = '0';
+          div.style.margin = '0';
+        }
+        commandPaletteList.appendChild(div);
+      } else if (item.type !== 'divider') {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'command-palette-item';
+        btn.innerHTML = '<div class="command-palette-item-label">' + (item.type === 'workflow' ? '<strong>' + item.label + '</strong>' : item.label) + (item.hint ? '<br><span style="color: var(--fg-secondary); font-size: 12px;">' + item.hint + '</span>' : '') + '</div>' + (item.hint && item.type !== 'workflow' ? '<span class="command-palette-item-hint">→</span>' : '');
+        btn.addEventListener('click', item.action);
+        btn.addEventListener('mouseover', function() {
+          document.querySelectorAll('.command-palette-item.is-active').forEach(function(el) {
+            el.classList.remove('is-active');
+          });
+          btn.classList.add('is-active');
+          commandPaletteSelectedIndex = Array.from(commandPaletteList.children).indexOf(btn);
+        });
+        commandPaletteList.appendChild(btn);
+      }
+    });
+  }
+
+  commandPaletteInput.addEventListener('input', commandPaletteRender);
+
+  commandPaletteBackdrop.addEventListener('click', function(e) {
+    if (e.target === commandPaletteBackdrop) {
+      commandPaletteClose();
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (commandPaletteOpen) {
+        commandPaletteClose();
+        return;
+      }
+      if (newWorkflowModal.classList.contains('is-open')) {
+        closeNewWorkflowModal();
+        return;
+      }
+      if (selectedStepIndex != null) {
+        closeStepInspector();
+      }
+      return;
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      if (commandPaletteOpen) {
+        commandPaletteClose();
+      } else {
+        commandPaletteOpen();
+      }
+      return;
+    }
+
+    if (e.key === '/' && !commandPaletteOpen) {
+      var activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        return;
+      }
+      e.preventDefault();
+      commandPaletteOpen();
+      commandPaletteInput.value = '/';
+      commandPaletteRender();
+      return;
+    }
+
+    if (commandPaletteOpen && e.key === 'ArrowDown') {
+      e.preventDefault();
+      var items = commandPaletteList.querySelectorAll('.command-palette-item');
+      commandPaletteSelectedIndex = Math.min(commandPaletteSelectedIndex + 1, items.length - 1);
+      if (commandPaletteSelectedIndex >= 0) {
+        items.forEach(function(el) { el.classList.remove('is-active'); });
+        items[commandPaletteSelectedIndex].classList.add('is-active');
+        items[commandPaletteSelectedIndex].scrollIntoView({ block: 'nearest' });
+      }
+      return;
+    }
+
+    if (commandPaletteOpen && e.key === 'ArrowUp') {
+      e.preventDefault();
+      var items = commandPaletteList.querySelectorAll('.command-palette-item');
+      commandPaletteSelectedIndex = Math.max(commandPaletteSelectedIndex - 1, 0);
+      if (commandPaletteSelectedIndex >= 0) {
+        items.forEach(function(el) { el.classList.remove('is-active'); });
+        items[commandPaletteSelectedIndex].classList.add('is-active');
+        items[commandPaletteSelectedIndex].scrollIntoView({ block: 'nearest' });
+      }
+      return;
+    }
+
+    if (commandPaletteOpen && e.key === 'Enter') {
+      e.preventDefault();
+      var items = commandPaletteList.querySelectorAll('.command-palette-item');
+      if (commandPaletteSelectedIndex >= 0 && commandPaletteSelectedIndex < items.length) {
+        items[commandPaletteSelectedIndex].click();
+      }
+      return;
+    }
+  });
+
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && newWorkflowModal.classList.contains('is-open')) {
       closeNewWorkflowModal();
@@ -3779,6 +4090,8 @@ body {
     }
   });
 
+  renderEvaluationsList();
+  updateSettingsView();
   checkConnection();
   setInterval(checkConnection, CONNECTION_INTERVAL_MS);
 
