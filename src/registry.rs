@@ -18,13 +18,14 @@ impl WorkflowRegistry {
                 created_at INTEGER NOT NULL
             );",
         )?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     pub fn insert(&self, ticket: &Ticket) -> rusqlite::Result<()> {
-        let ticket_json = serde_json::to_string(ticket).map_err(|e| {
-            rusqlite::Error::ToSqlConversionFailure(Box::new(e))
-        })?;
+        let ticket_json = serde_json::to_string(ticket)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         let created_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
@@ -45,7 +46,11 @@ impl WorkflowRegistry {
             Some(row) => {
                 let json: String = row.get(0)?;
                 let ticket = serde_json::from_str(&json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
                 })?;
                 Ok(Some(ticket))
             }

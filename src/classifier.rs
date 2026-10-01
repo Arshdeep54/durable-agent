@@ -2,8 +2,8 @@
 
 use crate::domain::{Classification, Ticket};
 use async_openai::Client;
-use async_openai::error::OpenAIError;
 use async_openai::config::OpenAIConfig;
+use async_openai::error::OpenAIError;
 use async_openai::types::chat::{
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage,
     ChatCompletionRequestUserMessage, CreateChatCompletionRequest,
@@ -48,9 +48,7 @@ fn mock_classify(body: &str) -> Classification {
     Classification {
         category: category.to_string(),
         urgency: urgency.to_string(),
-        draft_reply: format!(
-            "Thanks for reaching out about your {category} issue — we're on it."
-        ),
+        draft_reply: format!("Thanks for reaching out about your {category} issue — we're on it."),
     }
 }
 
@@ -100,12 +98,12 @@ impl Classifier for OpenAiClassifier {
             let request = CreateChatCompletionRequest {
                 model: "gpt-4o-mini".into(),
                 messages: vec![
-                    ChatCompletionRequestMessage::System(
-                        ChatCompletionRequestSystemMessage::from(SYSTEM_PROMPT),
-                    ),
-                    ChatCompletionRequestMessage::User(
-                        ChatCompletionRequestUserMessage::from(user_content),
-                    ),
+                    ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage::from(
+                        SYSTEM_PROMPT,
+                    )),
+                    ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage::from(
+                        user_content,
+                    )),
                 ],
                 ..Default::default()
             };
