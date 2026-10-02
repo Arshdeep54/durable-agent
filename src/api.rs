@@ -477,6 +477,52 @@ fn workflow_status_from_events(events: &[Event]) -> (String, Option<usize>) {
     (status, waiting_step)
 }
 
+fn workflow_has_terminal_event(events: &[Event]) -> bool {
+    events.iter().any(|e| {
+        matches!(
+            e,
+            Event::WorkflowCompleted { .. }
+                | Event::WorkflowFailed { .. }
+                | Event::WorkflowCancelled { .. }
+        )
+    })
+}
+
+fn ensure_terminal_failure_visible(
+    reader_store: &SqliteStore,
+    workflow_id: &str,
+    err: &EngineError,
+) {
+    if matches!(err, EngineError::WorkflowFailed { .. }) {
+        return;
+    }
+    let events = match reader_store.load_events(workflow_id) {
+        Ok(events) => events,
+        Err(store_err) => {
+            tracing::error!(
+                workflow_id = %workflow_id,
+                error = %store_err,
+                "load_events failed while recording execution failure"
+            );
+            return;
+        }
+    };
+    if workflow_has_terminal_event(&events) {
+        return;
+    }
+    let reason = err.to_string();
+    if let Err(store_err) = reader_store.append_event(&Event::WorkflowFailed {
+        workflow_id: workflow_id.to_string(),
+        reason,
+    }) {
+        tracing::error!(
+            workflow_id = %workflow_id,
+            error = %store_err,
+            "append WorkflowFailed after execution error failed"
+        );
+    }
+}
+
 fn is_unique_violation(err: &rusqlite::Error) -> bool {
     matches!(
         err,
@@ -631,6 +677,7 @@ async fn run_workflow(
     tokio::spawn(async move {
         if let Err(e) = engine.run(workflow, bodies).await {
             tracing::error!(workflow_id = %workflow_id, error = %e, "workflow run failed");
+            ensure_terminal_failure_visible(reader_store.as_ref(), &workflow_id, &e);
         }
         spawn_workflow_trace_batch(reader_store, trace_sink, worker_id, workflow_id);
     });
@@ -747,6 +794,14 @@ async fn workflow_events(
     State(state): State<ApiState>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let ticket = state.registry.get(&id).map_err(|e| {
+        tracing::error!(workflow_id = %id, error = %e, "registry get failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    if ticket.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
     let events_with_ts = state
         .reader_store
         .load_events_with_timestamps(&id)
@@ -794,6 +849,7 @@ fn spawn_resume(
                 error = %e,
                 "workflow resume failed"
             );
+            ensure_terminal_failure_visible(reader_store.as_ref(), &id, &e);
         }
         spawn_workflow_trace_batch(reader_store, trace_sink, worker_id, id);
     });
@@ -1738,5 +1794,100 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn workflow_events_unknown_id_returns_not_found() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let path = recovery_test_db_path("events-unknown");
+        let _ = std::fs::remove_file(&path);
+        let app = router().with_state(ApiState::new(&path));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/workflows/does-not-exist/events")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn approve_without_mounted_workflow_surfaces_failed_status_via_http() {
+        use crate::classifier::{Classifier, MockClassifier};
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let path = recovery_test_db_path("approve-unmounted");
+        let _ = std::fs::remove_file(&path);
+
+        let workflow_id = "wf-approve-unmounted";
+        let ticket = sample_ticket(workflow_id);
+        let classification = MockClassifier
+            .classify(&ticket)
+            .await
+            .expect("mock classify");
+        let classification_json =
+            serde_json::to_string(&classification).expect("classification json");
+
+        {
+            let registry = WorkflowRegistry::new(&path).expect("registry");
+            registry.insert(&ticket).expect("insert ticket");
+            seed_waiting_at_approval(&path, workflow_id, &classification_json);
+        }
+
+        let app = router().with_state(ApiState::new(&path));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/workflows/{workflow_id}/approve"))
+                    .body(Body::from("approved reply text"))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        for _ in 0..200 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/workflows/{workflow_id}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("oneshot");
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let view: serde_json::Value = serde_json::from_slice(&body).expect("json");
+            if view["status"] == "failed" {
+                let reader = SqliteStore::new(&path).expect("reader");
+                let events = reader.load_events(workflow_id).expect("events");
+                assert!(workflow_failed(&events));
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+
+        let reader = SqliteStore::new(&path).expect("reader");
+        let events = reader.load_events(workflow_id).expect("events");
+        panic!("workflow stayed non-failed after unmounted approve; events: {events:?}");
     }
 }
