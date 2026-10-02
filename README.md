@@ -43,6 +43,10 @@ All are optional. Unset, the app falls back to mocks/no-ops so it still runs.
 | `AGENTMAIL_WEBHOOK_SECRET` | Svix signing secret (`whsec_...`) to verify inbound `/webhooks/agentmail` replies | Webhook signature verification is skipped (only relevant if you're wiring a real AgentMail inbound webhook) |
 | `RESPAN_API_KEY` | Forwards workflow execution spans to Respan for observability | Falls back to a no-op trace sink (tracing calls are skipped entirely, never block the workflow) |
 | `DURABLE_AGENT_ALLOW_DEV_KILL` | Must be exactly `1` to allow `POST /dev/kill` to actually SIGKILL the running process | Endpoint returns 403 (or doesn't exist at all without the `dev-tools` build feature) |
+| `CLASSIFY_TIMEOUT_SECS` | Per-step wall-clock timeout for `ClassifyTicket` (seconds) | Defaults to `30` |
+| `SEND_REPLY_TIMEOUT_SECS` | Per-step wall-clock timeout for `SendReply` (seconds) | Defaults to `15` |
+| `DEMO_CLASSIFIER_MODE` | Demo-only mock classifier behavior: `fail_once`, `fail_permanent`, or `slow` (see `scripts/demo.sh`) | Normal mock classification |
+| `DURABLE_AGENT_API_KEY` | Bearer token required on workflow management routes (`/workflows*`, `/metrics`, etc.) | Management routes are unauthenticated |
 
 ## 10-minute walkthrough
 
@@ -85,7 +89,7 @@ All are optional. Unset, the app falls back to mocks/no-ops so it still runs.
 | Classification | `MockClassifier` — canned category/urgency/draft | `OpenAiClassifier` — real `gpt-4o-mini` call, needs `OPENAI_API_KEY` |
 | Approval request + customer reply | `MockApprovalSender`/`MockCustomerMailer` — logged only | `AgentMailSender` — real AgentMail API calls, needs `AGENTMAIL_API_KEY`/`AGENTMAIL_FROM_ADDRESS`/`APPROVER_EMAIL` |
 | Tracing | `NoopSink` — tracing calls skipped | `RespanSink` — spans forwarded to Respan, needs `RESPAN_API_KEY` |
-| Ticket system | Always an in-memory mock CRM (`InMemoryTicketSystem`) — no real integration exists |
+| Ticket system | `SqliteTicketSystem` — `resolved_tickets` table in `durable-agent.db` (durable, local; not an external CRM) | Same SQLite-backed store (no separate external ticket product) |
 
 The entire walkthrough above works with zero credentials set.
 
@@ -101,10 +105,19 @@ This engine gives **at-least-once execution, not exactly-once**. Recovery
 after a crash may re-execute a step that was interrupted mid-flight; any step
 with an external side effect (sending an email, updating a ticket system)
 must be idempotent on its own terms for the workflow to be effectively-once
-end to end. `SendReply` has no dedup key of its own — it relies on the
-engine skipping steps already recorded as `Completed`, so a crash strictly
-*before* completion is recorded can, in principle, cause a duplicate send on
-retry. `UpdateTicketSystem` is genuinely idempotent (keyed on `ticket_id`).
+end to end.
+
+While a step is running, the worker **renews its lease** on that step so a
+second worker cannot claim the same in-flight work just because wall-clock
+time passed — this mitigates duplicate execution across a live worker vs. a
+recovering one during long steps. After a process death, recovery still waits
+for the lease to expire before re-admitting the step (see `scripts/demo.sh
+crash`).
+
+`SendReply` has no dedup key of its own — it relies on the engine skipping
+steps already recorded as `Completed`, so a crash strictly *before*
+completion is recorded can, in principle, cause a duplicate send on retry.
+`UpdateTicketSystem` is idempotent (keyed on `ticket_id` in SQLite).
 
 This is a **single-node** engine — no distributed coordination, no leader
 election, no multi-worker scheduling. There is one specific, still-open
