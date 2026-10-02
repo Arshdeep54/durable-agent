@@ -151,12 +151,16 @@ pub struct OpenAiClassifier {
 impl OpenAiClassifier {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: Client::with_config(OpenAIConfig::new()),
         }
     }
 }
 
 const SYSTEM_PROMPT: &str = r"You classify customer support tickets. Reply with a single JSON object only, no markdown, with keys: category (string), urgency (string), draft_reply (string).";
+
+const OPENAI_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+
+const CLASSIFY_MALFORMED_RESPONSE_STATUS: u16 = 422;
 
 impl Classifier for OpenAiClassifier {
     fn classify(
@@ -182,14 +186,21 @@ impl Classifier for OpenAiClassifier {
                 ..Default::default()
             };
 
-            let response = client
-                .chat()
-                .create(request)
-                .await
-                .map_err(|e| ClassifyError {
-                    message: e.to_string(),
-                    status: openai_error_status(&e),
-                })?;
+            let response = tokio::time::timeout(OPENAI_REQUEST_TIMEOUT, async {
+                client.chat().create(request).await
+            })
+            .await
+            .map_err(|_| ClassifyError {
+                message: format!(
+                    "openai request timed out after {}s",
+                    OPENAI_REQUEST_TIMEOUT.as_secs()
+                ),
+                status: None,
+            })?
+            .map_err(|e| ClassifyError {
+                message: e.to_string(),
+                status: openai_error_status(&e),
+            })?;
 
             let content = response
                 .choices
@@ -198,12 +209,12 @@ impl Classifier for OpenAiClassifier {
                 .filter(|s| !s.trim().is_empty())
                 .ok_or_else(|| ClassifyError {
                     message: "empty model response".into(),
-                    status: None,
+                    status: Some(CLASSIFY_MALFORMED_RESPONSE_STATUS),
                 })?;
 
             serde_json::from_str::<Classification>(&content).map_err(|e| ClassifyError {
                 message: format!("failed to parse classification JSON: {e}"),
-                status: None,
+                status: Some(CLASSIFY_MALFORMED_RESPONSE_STATUS),
             })
         })
     }
@@ -462,6 +473,70 @@ mod tests {
             "workflow should complete after fail_once recovery"
         );
         assert!(ticket_system.is_resolved(&ticket.id));
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn openai_error_status_maps_api_and_other_errors() {
+        use async_openai::error::{ApiError, ApiErrorResponse};
+        use reqwest::StatusCode;
+
+        let api = |status: u16| {
+            OpenAIError::ApiError(ApiErrorResponse {
+                status_code: StatusCode::from_u16(status).expect("status"),
+                api_error: ApiError {
+                    message: "test".into(),
+                    r#type: None,
+                    param: None,
+                    code: None,
+                    misalignment: None,
+                },
+            })
+        };
+
+        assert_eq!(openai_error_status(&api(400)), Some(400));
+        assert_eq!(openai_error_status(&api(429)), Some(429));
+        assert_eq!(openai_error_status(&api(503)), Some(503));
+        assert_eq!(
+            openai_error_status(&OpenAIError::InvalidArgument("bad args".into())),
+            None
+        );
+    }
+
+    struct MalformedResponseClassifier;
+
+    impl Classifier for MalformedResponseClassifier {
+        fn classify(
+            &self,
+            _ticket: &Ticket,
+        ) -> Pin<Box<dyn Future<Output = Result<Classification, ClassifyError>> + Send>> {
+            Box::pin(async move {
+                Err(ClassifyError {
+                    message: "empty model response".into(),
+                    status: Some(CLASSIFY_MALFORMED_RESPONSE_STATUS),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_classify_response_does_not_retry() {
+        let ticket = unique_ticket("malformed-classify");
+        let classifier: Arc<dyn Classifier> = Arc::new(MalformedResponseClassifier);
+        let (path, _engine, reader_store, _ticket_system, run_result) =
+            workflow_engine_fixture(&ticket, classifier, None).await;
+        assert!(
+            matches!(run_result, Err(agentq::EngineError::WorkflowFailed { .. })),
+            "malformed classify response should fail the workflow without retries"
+        );
+
+        let events = reader_store.load_events(&ticket.id).expect("load events");
+        assert_eq!(
+            count_classify_retries(&events),
+            0,
+            "malformed classify response must not schedule classify retries"
+        );
 
         let _ = std::fs::remove_file(path);
     }

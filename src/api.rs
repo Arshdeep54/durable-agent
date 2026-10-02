@@ -188,6 +188,7 @@ impl ApiState {
         let classifier: Arc<dyn Classifier> = if std::env::var("OPENAI_API_KEY").is_ok() {
             Arc::new(OpenAiClassifier::new())
         } else {
+            tracing::info!("OPENAI_API_KEY not set — using MockClassifier");
             Arc::new(MockClassifier)
         };
 
@@ -206,6 +207,9 @@ impl ApiState {
                     Arc::new(sender) as Arc<dyn CustomerMailer>,
                 )
             } else {
+                tracing::info!(
+                    "AGENTMAIL_API_KEY, AGENTMAIL_FROM_ADDRESS, or APPROVER_EMAIL not set — using MockApprovalSender and MockCustomerMailer"
+                );
                 (
                     Arc::new(MockApprovalSender) as Arc<dyn ApprovalSender>,
                     Arc::new(MockCustomerMailer) as Arc<dyn CustomerMailer>,
@@ -220,7 +224,10 @@ impl ApiState {
             .filter(|s| !s.is_empty())
         {
             Some(key) => Arc::new(RespanSink::new(key)),
-            None => Arc::new(NoopSink),
+            None => {
+                tracing::info!("RESPAN_API_KEY not set — using NoopSink");
+                Arc::new(NoopSink)
+            }
         };
 
         Self {
