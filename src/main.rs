@@ -29,7 +29,7 @@ fn app(state: ApiState) -> Router {
         .merge(
             Router::new()
                 .route("/health", get(|| async { (StatusCode::OK, "ok") }))
-                .merge(api::router())
+                .merge(api::router_with_api_auth(state.api_key.clone()))
                 .with_state(state),
         )
 }

@@ -9,8 +9,10 @@ use agentq::{
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Request, State},
     http::StatusCode,
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post},
 };
 
@@ -105,6 +107,7 @@ pub struct ApiState {
     registry: Arc<WorkflowRegistry>,
     pub correlations: Arc<ApprovalCorrelations>,
     pub(crate) webhook_secret: Option<String>,
+    pub(crate) api_key: Option<String>,
     classifier: Arc<dyn Classifier>,
     approval_sender: Arc<dyn ApprovalSender>,
     mailer: Arc<dyn CustomerMailer>,
@@ -146,6 +149,13 @@ impl ApiState {
     }
 
     #[cfg(test)]
+    pub fn new_with_api_key(db_path: &str, api_key: &str) -> Self {
+        let mut state = Self::build(db_path, None);
+        state.api_key = Some(api_key.to_string());
+        state
+    }
+
+    #[cfg(test)]
     pub fn new_with_classifier_and_trace_sink(
         db_path: &str,
         classifier: Arc<dyn Classifier>,
@@ -170,6 +180,7 @@ impl ApiState {
     }
 
     fn build(db_path: &str, webhook_secret: Option<String>) -> Self {
+        let api_key = api_key_from_env();
         let engine_store = SqliteStore::new(db_path).expect("engine sqlite store");
         let reader_store = Arc::new(SqliteStore::new(db_path).expect("reader sqlite store"));
         let queue = Queue::builder().start();
@@ -236,6 +247,7 @@ impl ApiState {
             registry,
             correlations,
             webhook_secret,
+            api_key,
             classifier,
             approval_sender,
             mailer,
@@ -552,8 +564,40 @@ async fn dev_kill_worker() -> StatusCode {
     StatusCode::OK
 }
 
-pub fn router() -> Router<ApiState> {
-    let router = Router::new()
+fn bearer_token_matches(header: &str, expected: &str) -> bool {
+    header.strip_prefix("Bearer ") == Some(expected)
+}
+
+async fn require_api_key(
+    State(expected): State<Option<String>>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    match expected.as_deref() {
+        None => Ok(next.run(request).await),
+        Some(expected) => {
+            let authorized = request
+                .headers()
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|header| bearer_token_matches(header, expected));
+            if authorized {
+                Ok(next.run(request).await)
+            } else {
+                Err(StatusCode::UNAUTHORIZED)
+            }
+        }
+    }
+}
+
+fn api_key_from_env() -> Option<String> {
+    std::env::var("DURABLE_AGENT_API_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+}
+
+fn workflow_management_routes() -> Router<ApiState> {
+    Router::new()
         .route("/workflows", post(create_workflow).get(list_workflows))
         .route("/workflow-definition", get(workflow_definition))
         .route("/workflows/{id}", get(get_workflow))
@@ -562,16 +606,30 @@ pub fn router() -> Router<ApiState> {
         .route("/workflows/{id}/approve", post(approve_workflow))
         .route("/workflows/{id}/reject", post(reject_workflow))
         .route("/workflows/{id}/cancel", post(cancel_workflow))
-        .route("/webhooks/agentmail", post(agentmail_webhook))
-        .route("/metrics", get(get_metrics));
+        .route("/metrics", get(get_metrics))
+}
+
+fn public_routes() -> Router<ApiState> {
+    let public = Router::new().route("/webhooks/agentmail", post(agentmail_webhook));
     #[cfg(feature = "dev-tools")]
     {
-        router.route("/dev/kill", post(dev_kill_worker))
+        public.route("/dev/kill", post(dev_kill_worker))
     }
     #[cfg(not(feature = "dev-tools"))]
     {
-        router
+        public
     }
+}
+
+pub fn router_with_api_auth(api_key: Option<String>) -> Router<ApiState> {
+    let workflow_routes = workflow_management_routes()
+        .route_layer(middleware::from_fn_with_state(api_key, require_api_key));
+    Router::new().merge(workflow_routes).merge(public_routes())
+}
+
+#[cfg(test)]
+pub fn router() -> Router<ApiState> {
+    router_with_api_auth(api_key_from_env())
 }
 
 async fn get_metrics(State(state): State<ApiState>) -> Result<Json<MetricsView>, StatusCode> {
@@ -1889,5 +1947,113 @@ mod tests {
         let reader = SqliteStore::new(&path).expect("reader");
         let events = reader.load_events(workflow_id).expect("events");
         panic!("workflow stayed non-failed after unmounted approve; events: {events:?}");
+    }
+
+    #[tokio::test]
+    async fn durable_agent_api_key_protects_workflow_routes_when_set() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let path = recovery_test_db_path("api-key-auth");
+        let _ = std::fs::remove_file(&path);
+        let state = ApiState::new_with_api_key(&path, "test-api-key-secret");
+        let app = router_with_api_auth(state.api_key.clone()).with_state(state);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .header("authorization", "Bearer wrong-key")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .header("authorization", "Bearer test-api-key-secret")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/workflow-definition")
+                    .header("authorization", "Bearer test-api-key-secret")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn durable_agent_api_key_does_not_protect_webhook_or_dev_kill() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let path = recovery_test_db_path("api-key-public-routes");
+        let _ = std::fs::remove_file(&path);
+        let state = ApiState::new_with_api_key(&path, "test-api-key-secret");
+        let app = router_with_api_auth(state.api_key.clone()).with_state(state);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/webhooks/agentmail")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
+
+        #[cfg(feature = "dev-tools")]
+        {
+            unsafe { std::env::remove_var("DURABLE_AGENT_ALLOW_DEV_KILL") };
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/dev/kill")
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("oneshot");
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+
+        let _ = std::fs::remove_file(&path);
     }
 }
