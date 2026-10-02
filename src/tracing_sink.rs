@@ -217,13 +217,14 @@ fn event_metadata(event: &Event, worker_id: &str) -> serde_json::Value {
         Event::StepResumed {
             workflow_id,
             step_index,
-            ..
+            input,
         } => {
             serde_json::json!({
                 "workflow_id": workflow_id,
                 "worker_id": worker_id,
                 "event_kind": kind,
                 "step_index": step_index,
+                "input": input,
             })
         }
         Event::WorkflowCompleted { workflow_id } => {
@@ -429,5 +430,33 @@ mod tests {
         assert_eq!(waiting.name, "StepWaiting (step 2)");
         assert_eq!(waiting.metadata["step_index"], 2);
         assert_eq!(waiting.metadata["reason"], "approval");
+    }
+
+    #[test]
+    fn events_to_trace_spans_includes_step_resumed_input() {
+        let events = vec![
+            Event::WorkflowStarted {
+                workflow_id: "wf-2".into(),
+            },
+            Event::StepResumed {
+                workflow_id: "wf-2".into(),
+                step_index: 1,
+                input: "approved".into(),
+            },
+            Event::WorkerRecovered {
+                workflow_id: "wf-2".into(),
+                step_index: 0,
+            },
+        ];
+        let spans = events_to_trace_spans(&events, "worker-2");
+        assert_eq!(spans.len(), 4);
+
+        let resumed = &spans[2];
+        assert_eq!(resumed.path, "workflow/StepResumed");
+        assert_eq!(resumed.metadata["input"], "approved");
+
+        let recovered = &spans[3];
+        assert_eq!(recovered.path, "workflow/WorkerRecovered");
+        assert_eq!(recovered.name, "WorkerRecovered (step 0)");
     }
 }
