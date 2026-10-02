@@ -3,3 +3,6 @@
 .cursor/
 .implement/
 durable-agent.db
+.demo-server.pid
+.demo-server.meta
+.demo-server.log
