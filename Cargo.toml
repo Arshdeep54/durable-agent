@@ -2,6 +2,9 @@
 name = "durable-agent"
 version = "0.1.0"
 edition = "2024"
+description = "Reference app for agentq: a durable, crash-safe AI support-ticket workflow with email approvals"
+license = "MIT"
+repository = "https://github.com/Arshdeep54/durable-agent"
 
 [features]
 dev-tools = ["dep:libc"]
