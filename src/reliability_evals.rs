@@ -66,6 +66,7 @@ fn record_eval_pass(sink: &Arc<dyn TraceSink>, scenario: &str) {
         log_type: "task",
         output: metadata.to_string(),
         metadata,
+        llm: None,
     }]);
 }
 

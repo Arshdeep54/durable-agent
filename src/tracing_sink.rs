@@ -4,6 +4,8 @@ use agentq::{DurableStore, Event};
 use reqwest::Client;
 use serde::Serialize;
 
+use crate::domain::{Classification, LlmCall};
+
 pub struct TraceSpan {
     pub trace_id: String,
     pub span_id: String,
@@ -13,6 +15,7 @@ pub struct TraceSpan {
     pub log_type: &'static str,
     pub output: String,
     pub metadata: serde_json::Value,
+    pub llm: Option<LlmCall>,
 }
 
 pub trait TraceSink: Send + Sync {
@@ -57,6 +60,16 @@ struct RespanIngestSpan {
     log_type: &'static str,
     output: String,
     metadata: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latency: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input: Option<String>,
 }
 
 impl TraceSink for RespanSink {
@@ -78,6 +91,11 @@ impl TraceSink for RespanSink {
                 log_type: span.log_type,
                 output: span.output,
                 metadata: span.metadata,
+                model: span.llm.as_ref().map(|l| l.model.clone()),
+                prompt_tokens: span.llm.as_ref().map(|l| l.prompt_tokens),
+                completion_tokens: span.llm.as_ref().map(|l| l.completion_tokens),
+                latency: span.llm.as_ref().map(|l| l.latency_ms as f64 / 1000.0),
+                input: span.llm.map(|l| l.input),
             })
             .collect();
         tokio::spawn(async move {
@@ -317,6 +335,7 @@ pub fn events_to_trace_spans(events: &[Event], worker_id: &str) -> Vec<TraceSpan
         log_type: "workflow",
         output: root_metadata.to_string(),
         metadata: root_metadata,
+        llm: None,
     }];
     for (index, event) in events.iter().enumerate() {
         let kind = event_kind(event);
@@ -330,7 +349,25 @@ pub fn events_to_trace_spans(events: &[Event], worker_id: &str) -> Vec<TraceSpan
             log_type: "task",
             output: metadata.to_string(),
             metadata,
+            llm: None,
         });
+        if let Event::StepCompleted { output, .. } = event
+            && let Some(llm) = serde_json::from_str::<Classification>(output)
+                .ok()
+                .and_then(|c| c.llm)
+        {
+            spans.push(TraceSpan {
+                trace_id: workflow_id.clone(),
+                span_id: format!("{workflow_id}:{index}:llm"),
+                parent_span_id: Some(format!("{workflow_id}:{index}")),
+                path: "workflow/llm".to_string(),
+                name: format!("openai.chat ({})", llm.model),
+                log_type: "chat",
+                output: output.clone(),
+                metadata: serde_json::json!({ "workflow_id": workflow_id }),
+                llm: Some(llm),
+            });
+        }
     }
     spans
 }
@@ -375,6 +412,7 @@ mod tests {
             log_type: "task",
             output: "{}".into(),
             metadata: serde_json::json!({}),
+            llm: None,
         }]);
     }
 
@@ -430,6 +468,30 @@ mod tests {
         assert_eq!(waiting.name, "StepWaiting (step 2)");
         assert_eq!(waiting.metadata["step_index"], 2);
         assert_eq!(waiting.metadata["reason"], "approval");
+    }
+
+    #[test]
+    fn classification_with_llm_call_emits_chat_span() {
+        let output = r#"{"category":"billing","urgency":"high","draft_reply":"On it.","llm":{"model":"gpt-4o-mini","prompt_tokens":120,"completion_tokens":45,"latency_ms":1500,"input":"Subject: refund"}}"#;
+        let events = vec![
+            Event::WorkflowStarted {
+                workflow_id: "wf-llm".into(),
+            },
+            Event::StepCompleted {
+                workflow_id: "wf-llm".into(),
+                step_index: 1,
+                output: output.into(),
+            },
+        ];
+        let spans = events_to_trace_spans(&events, "worker-1");
+        let chat = spans
+            .iter()
+            .find(|s| s.log_type == "chat")
+            .expect("chat span");
+        let llm = chat.llm.as_ref().expect("llm fields");
+        assert_eq!(llm.model, "gpt-4o-mini");
+        assert_eq!(llm.prompt_tokens, 120);
+        assert_eq!(chat.parent_span_id.as_deref(), Some("wf-llm:1"));
     }
 
     #[test]

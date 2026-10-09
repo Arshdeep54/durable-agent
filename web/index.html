@@ -730,6 +730,14 @@ body {
   font-size: 12px;
 }
 
+textarea.approval-review-draft {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  font-family: inherit;
+  color: var(--fg);
+}
+
 .approval-review-draft {
   margin: 0;
   padding: var(--space-3) var(--space-4);
@@ -1955,6 +1963,7 @@ body {
       <button type="button" class="topbar-nav-link is-settings" data-section="settings" aria-label="Settings">⚙</button>
     </nav>
     <div class="topbar-actions">
+      <button type="button" class="btn btn-destructive" id="btnKillWorker" hidden>Kill worker</button>
       <button type="button" class="cmd-k-hint" id="btnOpenCommandPalette" aria-label="Open command palette">⌘K</button>
       <div class="connection is-disconnected" id="connection" aria-live="polite">
         <span class="dot" aria-hidden="true">●</span>
@@ -2017,6 +2026,8 @@ body {
             <p class="detail-current-step" id="detailCurrentStep" hidden></p>
             <p class="detail-meta" id="detailWorkflowMeta"></p>
             <p class="detail-respan-link" id="detailRespanLink"><a id="detailRespanLinkEl" href="#" target="_blank" rel="noopener noreferrer">Open trace in Respan ↗</a></p>
+            <p class="detail-meta" id="detailFailReason" hidden></p>
+            <p><button type="button" class="btn btn-destructive" id="btnCancelRun" hidden>Cancel workflow</button></p>
           </div>
           <div id="detailWorkflowError" class="detail-error" hidden>
             <h3>Couldn't load workflow</h3>
@@ -2103,6 +2114,8 @@ body {
         <div class="placeholder-block">
           <p class="placeholder-text">Run reliability evaluations against durable execution behavior.</p>
           <ol id="evalsList" style="margin-top: var(--space-4); color: var(--fg); font-size: 13px; line-height: 1.8; padding-left: var(--space-5);"></ol>
+          <p><button type="button" class="btn btn-primary" id="btnRunEvals" hidden>Run evaluations</button></p>
+          <ul id="evalsResult" style="margin-top: var(--space-3); list-style: none; padding: 0; font-family: var(--mono); font-size: 12px; line-height: 1.8;"></ul>
           <p style="margin-top: var(--space-5); color: var(--fg-secondary); font-size: 13px; line-height: 1.6;">
             Run the full evaluation suite from the repository root:
           </p>
@@ -2121,6 +2134,15 @@ body {
             <div>
               <p style="font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 var(--space-2);">API Base</p>
               <p style="font-size: 12px; font-family: var(--mono); color: var(--fg-secondary); margin: 0;" id="settingsApiBase">—</p>
+            </div>
+            <div>
+              <p style="font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 var(--space-2);">Integrations</p>
+              <p style="font-size: 13px; color: var(--fg); margin: 0; line-height: 1.8;" id="settingsIntegrations">—</p>
+            </div>
+            <div>
+              <p style="font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 var(--space-2);">API key</p>
+              <input type="password" id="settingsApiKey" placeholder="Bearer token (DURABLE_AGENT_API_KEY)" autocomplete="off" style="width: 100%; max-width: 360px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--fg);">
+              <button type="button" class="btn" id="btnSaveApiKey">Save</button>
             </div>
           </div>
         </div>
@@ -2173,6 +2195,17 @@ body {
 
 <script>
 (function () {
+  var apiKey = '';
+  try { apiKey = window.localStorage.getItem('durableApiKey') || ''; } catch (e) {}
+  var nativeFetch = window.fetch.bind(window);
+  window.fetch = function (url, opts) {
+    if (apiKey) {
+      opts = opts || {};
+      opts.headers = Object.assign({}, opts.headers, { Authorization: 'Bearer ' + apiKey });
+    }
+    return nativeFetch(url, opts);
+  };
+  var serverConfig = { classifier: 'mock', mailer: 'mock', tracing: false, auth_required: false, dev_tools: false };
   var CONNECTION_INTERVAL_MS = 12000;
   var WORKFLOWS_POLL_MS = 4000;
   var connectionEl = document.getElementById('connection');
@@ -2233,14 +2266,18 @@ body {
   function checkConnection() {
     fetch('/metrics')
       .then(function (r) {
+        if (r.status === 401) throw new Error('unauthorized');
         if (!r.ok) throw new Error('metrics');
         return r.json();
       })
       .then(function () {
         setConnection(true);
       })
-      .catch(function () {
+      .catch(function (err) {
         setConnection(false);
+        if (err && err.message === 'unauthorized') {
+          connectionLabel.textContent = 'API key required (Settings)';
+        }
       });
   }
 
@@ -2306,6 +2343,9 @@ body {
   var approvalPanel = document.getElementById('approvalPanel');
   var approvalReview = document.getElementById('approvalReview');
   var approvalPanelError = document.getElementById('approvalPanelError');
+  var detailFailReason = document.getElementById('detailFailReason');
+  var btnCancelRun = document.getElementById('btnCancelRun');
+  var approvalDraftInput = null;
   var btnApprove = document.getElementById('btnApprove');
   var btnReject = document.getElementById('btnReject');
   var rejectReasonInput = document.getElementById('rejectReason');
@@ -2517,7 +2557,11 @@ body {
       traceLink.target = '_blank';
       traceLink.rel = 'noopener noreferrer';
       traceLink.textContent = 'Respan ↗';
-      traceTd.appendChild(traceLink);
+      if (serverConfig.tracing) {
+        traceTd.appendChild(traceLink);
+      } else {
+        traceTd.textContent = '—';
+      }
       tr.appendChild(idTd);
       tr.appendChild(durTd);
       tr.appendChild(stepsTd);
@@ -3200,7 +3244,7 @@ body {
       stepInspectorBody.appendChild(block);
     });
 
-    if (stepName === 'ClassifyTicket') {
+    if (stepName === 'ClassifyTicket' && serverConfig.tracing) {
       var traceBlock = document.createElement('div');
       traceBlock.className = 'step-inspector-field';
       var traceLabel = document.createElement('p');
@@ -3487,9 +3531,11 @@ body {
       var draftLabel = document.createElement('p');
       draftLabel.className = 'approval-review-label';
       draftLabel.textContent = 'Draft reply';
-      var draftVal = document.createElement('p');
+      var draftVal = document.createElement('textarea');
       draftVal.className = 'approval-review-draft';
-      draftVal.textContent = classification.draft_reply;
+      draftVal.setAttribute('aria-label', 'Draft reply (editable)');
+      draftVal.value = classification.draft_reply;
+      approvalDraftInput = draftVal;
       draftRow.appendChild(draftLabel);
       draftRow.appendChild(draftVal);
       approvalReview.appendChild(draftRow);
@@ -4256,6 +4302,23 @@ body {
     }
 
     detailRespanLinkEl.href = respanTraceUrl(wf.id);
+    detailRespanLinkEl.parentNode.hidden = !serverConfig.tracing;
+
+    var failReason = '';
+    if (wf.status === 'failed' && events) {
+      for (var fi = events.length - 1; fi >= 0 && !failReason; fi--) {
+        var fu = unwrapEvent(events[fi]);
+        if (fu && (fu.kind === 'WorkflowFailed' || fu.kind === 'StepFailed') && fu.payload && fu.payload.reason) {
+          failReason = fu.payload.reason;
+        }
+      }
+    }
+    detailFailReason.hidden = !failReason;
+    detailFailReason.textContent = failReason ? 'Reason: ' + failReason : '';
+    btnCancelRun.hidden = !(wf.status === 'running' || wf.status === 'waiting');
+    if (btnCancelRun.hidden) {
+      btnCancelRun.textContent = 'Cancel workflow';
+    }
   }
 
   function setDetailError(message) {
@@ -4495,7 +4558,7 @@ body {
 
     fetchWorkflowDefinition().then(function (stepNames) {
       var approvalIndex = stepIndexByName(stepNames, 'RequestApproval');
-      return postApprovalDecision(id, '/approve', 'approved').then(function (r) {
+      return postApprovalDecision(id, '/approve', (approvalDraftInput && approvalDraftInput.value.trim()) || 'approved').then(function (r) {
         if (r.status === 404) {
           throw new Error('This workflow is not waiting for approval.');
         }
@@ -4831,6 +4894,94 @@ body {
 
   renderEvaluationsList();
   updateSettingsView();
+  btnCancelRun.addEventListener('click', function () {
+    var id = detailWorkflowIdCurrent;
+    if (!id) {
+      return;
+    }
+    if (btnCancelRun.textContent !== 'Click again to confirm') {
+      btnCancelRun.textContent = 'Click again to confirm';
+      return;
+    }
+    btnCancelRun.disabled = true;
+    postApprovalDecision(id, '/cancel', '').then(function (r) {
+      btnCancelRun.disabled = false;
+      btnCancelRun.textContent = 'Cancel workflow';
+      if (!r.ok) {
+        approvalPanelError.hidden = false;
+        approvalPanelError.textContent = 'Cancel failed (' + r.status + ').';
+        return;
+      }
+      bumpDetailRefresh(id);
+    });
+  });
+
+  var btnKillWorker = document.getElementById('btnKillWorker');
+  btnKillWorker.addEventListener('click', function () {
+    if (btnKillWorker.textContent !== 'Click again to SIGKILL') {
+      btnKillWorker.textContent = 'Click again to SIGKILL';
+      window.setTimeout(function () { btnKillWorker.textContent = 'Kill worker'; }, 4000);
+      return;
+    }
+    btnKillWorker.textContent = 'Kill worker';
+    fetch('/dev/kill', { method: 'POST' }).catch(function () {});
+  });
+
+  var btnRunEvals = document.getElementById('btnRunEvals');
+  var evalsResult = document.getElementById('evalsResult');
+  btnRunEvals.addEventListener('click', function () {
+    btnRunEvals.disabled = true;
+    btnRunEvals.textContent = 'Running… (first run compiles; may take a minute)';
+    evalsResult.innerHTML = '';
+    fetch('/dev/evals', { method: 'POST' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('Run failed (' + r.status + ')');
+        return r.json();
+      })
+      .then(function (results) {
+        var passed = results.filter(function (e) { return e.passed; }).length;
+        var summary = document.createElement('li');
+        summary.style.fontWeight = '600';
+        summary.textContent = passed + '/' + results.length + ' passed';
+        evalsResult.appendChild(summary);
+        results.forEach(function (e) {
+          var li = document.createElement('li');
+          li.style.color = e.passed ? 'var(--success)' : 'var(--error)';
+          li.textContent = (e.passed ? '✓ ' : '× ') + e.name;
+          evalsResult.appendChild(li);
+        });
+      })
+      .catch(function (err) {
+        evalsResult.textContent = err.message;
+      })
+      .then(function () {
+        btnRunEvals.disabled = false;
+        btnRunEvals.textContent = 'Run evaluations';
+      });
+  });
+
+  document.getElementById('btnSaveApiKey').addEventListener('click', function () {
+    try { window.localStorage.setItem('durableApiKey', document.getElementById('settingsApiKey').value.trim()); } catch (e) {}
+    window.location.reload();
+  });
+
+  function loadConfig() {
+    nativeFetch('/config')
+      .then(function (r) { return r.json(); })
+      .then(function (cfg) {
+        serverConfig = cfg;
+        btnKillWorker.hidden = !cfg.dev_tools;
+        btnRunEvals.hidden = !cfg.dev_tools;
+        document.getElementById('settingsIntegrations').innerHTML =
+          'Classifier: <strong>' + (cfg.classifier === 'openai' ? 'OpenAI (live)' : 'mock') + '</strong><br>' +
+          'Email: <strong>' + (cfg.mailer === 'agentmail' ? 'AgentMail (live)' : 'mock') + '</strong><br>' +
+          'Tracing: <strong>' + (cfg.tracing ? 'Respan (live)' : 'off') + '</strong><br>' +
+          'API auth: <strong>' + (cfg.auth_required ? (apiKey ? 'on (key set)' : 'on (key missing)') : 'off') + '</strong>';
+      })
+      .catch(function () {});
+  }
+
+  loadConfig();
   checkConnection();
   setInterval(checkConnection, CONNECTION_INTERVAL_MS);
 

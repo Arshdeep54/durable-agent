@@ -135,8 +135,14 @@ pub fn build_step_bodies(
         let reader_store = Arc::clone(&reader_store_send);
         Box::pin(async move {
             let events = reader_store.load_events(&ticket.id)?;
-            let approved_reply =
+            let mut approved_reply =
                 step_completed_output(&events, 2).ok_or("approval output missing")?;
+            if approved_reply.trim().eq_ignore_ascii_case("approved")
+                && let Some(draft) = step_completed_output(&events, 1)
+                    .and_then(|json| serde_json::from_str::<Classification>(&json).ok())
+            {
+                approved_reply = draft.draft_reply;
+            }
             let subject = format!("Re: {}", ticket.subject);
             mailer
                 .send_reply(&ticket.customer_id, &subject, &approved_reply)
@@ -324,6 +330,70 @@ mod tests {
             .expect("run should pause at approval without error");
 
         (path_str, engine, reader_store, ticket, ticket_system)
+    }
+
+    struct CapturingMailer(std::sync::Mutex<Vec<String>>);
+
+    impl crate::approval::CustomerMailer for CapturingMailer {
+        fn send_reply(
+            &self,
+            _to: &str,
+            _subject: &str,
+            text: &str,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<(), crate::approval::ApprovalError>> + Send,
+            >,
+        > {
+            self.0.lock().expect("capture lock").push(text.to_string());
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn bare_approved_sends_classifier_draft_not_the_word_approved() {
+        let path = std::env::temp_dir().join(format!(
+            "durable-agent-steps-draft-test-{}.db",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let path_str = path.to_str().expect("temp db path utf8");
+
+        let store = SqliteStore::new(path_str).expect("engine store");
+        let reader_store = Arc::new(SqliteStore::new(path_str).expect("reader store"));
+        let engine = Arc::new(WorkflowEngine::new(
+            Queue::builder().start(),
+            store,
+            "test-worker".to_string(),
+            Duration::from_secs(60),
+            Priority::High,
+        ));
+        let ticket = sample_ticket();
+        let mailer = Arc::new(CapturingMailer(std::sync::Mutex::new(Vec::new())));
+        let bodies = build_step_bodies(
+            ticket.clone(),
+            Arc::new(MockClassifier),
+            Arc::new(MockApprovalSender),
+            Arc::clone(&mailer) as Arc<dyn crate::approval::CustomerMailer>,
+            Arc::new(InMemoryTicketSystem::new()),
+            Arc::clone(&engine),
+            Arc::clone(&reader_store),
+            Arc::new(ApprovalCorrelations::new(path_str).expect("correlations store")),
+        );
+        engine
+            .run(ticket_workflow(&ticket.id), bodies)
+            .await
+            .expect("run");
+        engine
+            .resume(&ticket.id, 2, "approved".to_string())
+            .await
+            .expect("resume");
+
+        let sent = mailer.0.lock().expect("capture lock");
+        assert_eq!(sent.len(), 1);
+        assert_ne!(sent[0].trim().to_ascii_lowercase(), "approved");
+        assert!(sent[0].contains("we're on it"), "got: {}", sent[0]);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[tokio::test]

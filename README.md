@@ -28,7 +28,14 @@ below.
 
 ## UI
 
-Open **http://127.0.0.1:8080/** once the server is running.
+Open **http://127.0.0.1:8080/** (or the port in `PORT`) once the server is running.
+
+The console shows live integration status (from `GET /config`), lets you edit the
+draft reply before approving (the edited text is what the customer receives;
+approving unedited sends the classifier's draft), shows failure reasons, and can
+cancel running workflows. With a `dev-tools` build and `DURABLE_AGENT_ALLOW_DEV_KILL=1`
+it also shows a **Kill worker** button and a **Run evaluations** button
+(`POST /dev/evals`). If `DURABLE_AGENT_API_KEY` is set, enter it under Settings.
 
 ## Environment variables
 
@@ -46,6 +53,7 @@ All are optional. Unset, the app falls back to mocks/no-ops so it still runs.
 | `CLASSIFY_TIMEOUT_SECS` | Per-step wall-clock timeout for `ClassifyTicket` (seconds) | Defaults to `30` |
 | `SEND_REPLY_TIMEOUT_SECS` | Per-step wall-clock timeout for `SendReply` (seconds) | Defaults to `15` |
 | `DEMO_CLASSIFIER_MODE` | Demo-only mock classifier behavior: `fail_once`, `fail_permanent`, or `slow` (see `scripts/demo.sh`) | Normal mock classification |
+| `PORT` | Port to bind on 127.0.0.1 | `8080` |
 | `DURABLE_AGENT_API_KEY` | Bearer token required on workflow management routes (`/workflows*`, `/metrics`, etc.) | Management routes are unauthenticated |
 
 ## 10-minute walkthrough
@@ -77,7 +85,7 @@ All are optional. Unset, the app falls back to mocks/no-ops so it still runs.
    `DURABLE_AGENT_ALLOW_DEV_KILL=1` in its environment, create a fourth
    workflow and run it. While it's mid-`ClassifyTicket` (fast with the mock
    classifier — you may need to watch closely or retry once), hit
-   `POST /dev/kill` (e.g. `curl -X POST http://127.0.0.1:8080/dev/kill`).
+   `POST /dev/kill` (e.g. `curl -X POST http://127.0.0.1:8080/dev/kill` (or use the console button)).
    The process exits immediately. Restart the same command — startup
    recovery logs `re-admitted interrupted step(s)` and the workflow resumes
    from where it was, without re-running `IngestTicket`.
@@ -112,7 +120,9 @@ second worker cannot claim the same in-flight work just because wall-clock
 time passed — this mitigates duplicate execution across a live worker vs. a
 recovering one during long steps. After a process death, recovery still waits
 for the lease to expire before re-admitting the step (see `scripts/demo.sh
-crash`).
+crash`). A background sweeper runs every 5s and re-admits any lease that has
+expired, so a restart within the lease window recovers on its own without a
+second restart.
 
 `SendReply` has no dedup key of its own — it relies on the engine skipping
 steps already recorded as `Completed`, so a crash strictly *before*

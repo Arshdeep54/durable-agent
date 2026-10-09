@@ -42,9 +42,26 @@ async fn main() {
         Ok(count) => tracing::info!(count, "startup recovery: re-admitted interrupted step(s)"),
         Err(e) => tracing::error!(error = %e, "startup recovery failed"),
     }
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
+    let sweeper = state.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            match sweeper.sweep_expired_leases().await {
+                Ok(0) => {}
+                Ok(count) => {
+                    tracing::info!(count, "recovery sweep: re-admitted interrupted step(s)")
+                }
+                Err(e) => tracing::error!(error = %e, "recovery sweep failed"),
+            }
+        }
+    });
+    let addr = format!(
+        "127.0.0.1:{}",
+        std::env::var("PORT").unwrap_or_else(|_| "8080".to_string())
+    );
+    let listener = tokio::net::TcpListener::bind(&addr)
         .await
-        .expect("bind 127.0.0.1:8080");
+        .unwrap_or_else(|e| panic!("bind {addr}: {e}"));
     axum::serve(listener, app(state)).await.expect("serve");
 }
 
@@ -749,6 +766,29 @@ mod tests {
         let after_run = fetch_metrics(&app).await;
         assert_eq!(after_run["workflows_created"], 1);
         assert_eq!(after_run["workflow_runs"], 1);
+    }
+
+    #[tokio::test]
+    async fn metrics_survive_restart() {
+        let path = test_db_path("metrics-restart");
+        let _ = std::fs::remove_file(&path);
+        let ticket_json =
+            r#"{"id":"wf-m-restart","customer_id":"c@example.com","subject":"s","body":"b"}"#;
+        let response = app(ApiState::new(&path))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/workflows")
+                    .header("content-type", "application/json")
+                    .body(Body::from(ticket_json))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let restarted = app(ApiState::new(&path));
+        assert_eq!(fetch_metrics(&restarted).await["workflows_created"], 1);
     }
 
     #[tokio::test]

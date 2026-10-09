@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::domain::{Classification, Ticket};
+use crate::domain::{Classification, LlmCall, Ticket};
 use async_openai::Client;
 use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
@@ -96,6 +96,7 @@ fn mock_classify(body: &str) -> Classification {
         category: category.to_string(),
         urgency: urgency.to_string(),
         draft_reply: format!("Thanks for reaching out about your {category} issue — we're on it."),
+        llm: None,
     }
 }
 
@@ -173,6 +174,8 @@ impl Classifier for OpenAiClassifier {
 
         Box::pin(async move {
             let user_content = format!("Subject: {subject}\n\n{body}");
+            let input = user_content.clone();
+            let started = std::time::Instant::now();
             let request = CreateChatCompletionRequest {
                 model: "gpt-4o-mini".into(),
                 messages: vec![
@@ -212,10 +215,20 @@ impl Classifier for OpenAiClassifier {
                     status: Some(CLASSIFY_MALFORMED_RESPONSE_STATUS),
                 })?;
 
-            serde_json::from_str::<Classification>(&content).map_err(|e| ClassifyError {
-                message: format!("failed to parse classification JSON: {e}"),
-                status: Some(CLASSIFY_MALFORMED_RESPONSE_STATUS),
-            })
+            let mut classification =
+                serde_json::from_str::<Classification>(&content).map_err(|e| ClassifyError {
+                    message: format!("failed to parse classification JSON: {e}"),
+                    status: Some(CLASSIFY_MALFORMED_RESPONSE_STATUS),
+                })?;
+            let usage = response.usage.as_ref();
+            classification.llm = Some(LlmCall {
+                model: response.model.clone(),
+                prompt_tokens: usage.map_or(0, |u| u.prompt_tokens),
+                completion_tokens: usage.map_or(0, |u| u.completion_tokens),
+                latency_ms: started.elapsed().as_millis() as u64,
+                input,
+            });
+            Ok(classification)
         })
     }
 }

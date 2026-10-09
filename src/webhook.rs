@@ -111,7 +111,29 @@ fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Drops the quoted thread mail clients append below a reply.
+/// ponytail: only recognizes `>` quotes and "On ... wrote:" headers (Gmail, Apple Mail); Outlook's "From:" block is not stripped.
+fn strip_quoted_reply(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let end = lines
+        .iter()
+        .enumerate()
+        .position(|(i, line)| {
+            let line = line.trim();
+            line.starts_with('>')
+                || (line.starts_with("On ")
+                    && (line.ends_with("wrote:")
+                        || lines
+                            .get(i + 1)
+                            .is_some_and(|n| n.trim().ends_with("wrote:"))))
+        })
+        .unwrap_or(lines.len());
+    lines[..end].join("\n").trim().to_string()
+}
+
 fn resume_input_from_reply(text: &str) -> String {
+    let text = strip_quoted_reply(text);
+    let text = text.as_str();
     if text.to_ascii_lowercase().contains("reject") {
         let first_line = text.lines().next().unwrap_or(text).trim();
         if first_line.is_empty() {
@@ -199,7 +221,7 @@ pub async fn agentmail_webhook(
     let resume_result = state.engine.resume(&workflow_id, step_index, input).await;
 
     match resume_result {
-        Ok(()) => {}
+        Ok(()) => state.forward_trace(workflow_id),
         Err(e) if resume_error_is_benign(&e) => {
             tracing::warn!(
                 workflow_id = %workflow_id,
@@ -243,6 +265,22 @@ mod tests {
     use tower::ServiceExt;
 
     const TEST_SECRET: &str = "whsec_aGVsbG8=";
+
+    #[test]
+    fn gmail_reply_ignores_quoted_thread() {
+        let gmail = "approved\r\n\r\nOn Fri, Oct 9, 2026 at 4:36 AM AgentMail <\r\nsupport@agentmail.to> wrote:\r\n\r\n> Draft reply:\r\n> Please do not reject this.\r\n";
+        assert_eq!(resume_input_from_reply(gmail), "approved");
+        let edited = "Replacement ships today.\nThanks!\n\n> quoted line\n";
+        assert_eq!(
+            resume_input_from_reply(edited),
+            "Replacement ships today.\nThanks!"
+        );
+        let rejected = "reject: wrong tone\n\nOn Fri, Oct 9 AgentMail wrote:\n> Draft\n";
+        assert_eq!(
+            resume_input_from_reply(rejected),
+            "rejected:reject: wrong tone"
+        );
+    }
 
     fn test_db_path(label: &str) -> String {
         std::env::temp_dir()
@@ -429,6 +467,61 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
         panic!("workflow did not complete");
+    }
+
+    struct CapturingSink(std::sync::Mutex<Vec<String>>);
+
+    impl crate::tracing_sink::TraceSink for CapturingSink {
+        fn record_batch(&self, spans: Vec<crate::tracing_sink::TraceSpan>) {
+            self.0
+                .lock()
+                .expect("spans")
+                .extend(spans.into_iter().map(|s| s.name));
+        }
+    }
+
+    #[tokio::test]
+    async fn approval_webhook_forwards_completed_trace() {
+        let path = test_db_path("approve-trace");
+        let _ = std::fs::remove_file(&path);
+        let thread_id = "thd_approve_trace";
+        let workflow_id = "wf-webhook-approve-trace";
+        let engine = seed_waiting_workflow(&path, workflow_id, thread_id).await;
+
+        let sink = Arc::new(CapturingSink(std::sync::Mutex::new(Vec::new())));
+        let mut state = ApiState::new_with_webhook_secret_and_trace_sink(
+            &path,
+            TEST_SECRET,
+            Arc::clone(&sink) as Arc<dyn crate::tracing_sink::TraceSink>,
+        );
+        state.engine = engine;
+
+        let body = format!(
+            r#"{{"event_type":"message.received","message":{{"thread_id":"{thread_id}","text":"approved"}}}}"#,
+        );
+        let ts = now_timestamp();
+        let sig = sign_payload(TEST_SECRET, "svix_trace_1", &ts, body.as_bytes());
+        let response = router()
+            .with_state(state)
+            .oneshot(webhook_request(&body, "svix_trace_1", &ts, &sig))
+            .await
+            .expect("oneshot");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        for _ in 0..200 {
+            if sink
+                .0
+                .lock()
+                .expect("spans")
+                .iter()
+                .any(|n| n == "WorkflowCompleted")
+            {
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("no WorkflowCompleted span forwarded after webhook approval");
     }
 
     #[tokio::test]

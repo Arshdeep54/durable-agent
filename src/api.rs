@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use agentq::{
@@ -31,61 +31,78 @@ use crate::workflow_def::ticket_workflow;
 
 const WORKER_ID: &str = "worker-1";
 
+/// Counters persisted in SQLite so the dashboard survives restarts.
 pub(crate) struct Metrics {
-    workflows_created: AtomicU64,
-    workflow_runs: AtomicU64,
-    approvals: AtomicU64,
-    rejections: AtomicU64,
-    cancellations: AtomicU64,
-    webhooks_processed: AtomicU64,
+    conn: Mutex<rusqlite::Connection>,
 }
 
 impl Metrics {
-    fn new() -> Self {
-        Self {
-            workflows_created: AtomicU64::new(0),
-            workflow_runs: AtomicU64::new(0),
-            approvals: AtomicU64::new(0),
-            rejections: AtomicU64::new(0),
-            cancellations: AtomicU64::new(0),
-            webhooks_processed: AtomicU64::new(0),
+    fn new(db_path: &str) -> rusqlite::Result<Self> {
+        let conn = rusqlite::Connection::open(db_path)?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS metrics (name TEXT PRIMARY KEY, value INTEGER NOT NULL);",
+        )?;
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
+    }
+
+    fn inc(&self, name: &str) {
+        let conn = self.conn.lock().expect("metrics connection");
+        if let Err(e) = conn.execute(
+            "INSERT INTO metrics (name, value) VALUES (?1, 1)
+             ON CONFLICT(name) DO UPDATE SET value = value + 1",
+            [name],
+        ) {
+            tracing::warn!(metric = name, error = %e, "metrics increment failed");
         }
     }
 
     fn inc_workflows_created(&self) {
-        self.workflows_created.fetch_add(1, Ordering::Relaxed);
+        self.inc("workflows_created");
     }
 
     fn inc_workflow_runs(&self) {
-        self.workflow_runs.fetch_add(1, Ordering::Relaxed);
+        self.inc("workflow_runs");
     }
 
     fn inc_approvals(&self) {
-        self.approvals.fetch_add(1, Ordering::Relaxed);
+        self.inc("approvals");
     }
 
     fn inc_rejections(&self) {
-        self.rejections.fetch_add(1, Ordering::Relaxed);
+        self.inc("rejections");
     }
 
     fn inc_cancellations(&self) {
-        self.cancellations.fetch_add(1, Ordering::Relaxed);
+        self.inc("cancellations");
     }
 
     pub(crate) fn inc_webhooks_processed(&self) {
-        self.webhooks_processed.fetch_add(1, Ordering::Relaxed);
+        self.inc("webhooks_processed");
     }
 
-    fn snapshot(&self, workflows_waiting: u64) -> MetricsView {
-        MetricsView {
-            workflows_created: self.workflows_created.load(Ordering::Relaxed),
-            workflow_runs: self.workflow_runs.load(Ordering::Relaxed),
-            approvals: self.approvals.load(Ordering::Relaxed),
-            rejections: self.rejections.load(Ordering::Relaxed),
-            cancellations: self.cancellations.load(Ordering::Relaxed),
-            webhooks_processed: self.webhooks_processed.load(Ordering::Relaxed),
+    fn snapshot(&self, workflows_waiting: u64) -> rusqlite::Result<MetricsView> {
+        let conn = self.conn.lock().expect("metrics connection");
+        let get = |name: &str| -> rusqlite::Result<u64> {
+            conn.query_row("SELECT value FROM metrics WHERE name = ?1", [name], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map(|v| v as u64)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(0),
+                e => Err(e),
+            })
+        };
+        Ok(MetricsView {
+            workflows_created: get("workflows_created")?,
+            workflow_runs: get("workflow_runs")?,
+            approvals: get("approvals")?,
+            rejections: get("rejections")?,
+            cancellations: get("cancellations")?,
+            webhooks_processed: get("webhooks_processed")?,
             workflows_waiting,
-        }
+        })
     }
 }
 
@@ -254,7 +271,7 @@ impl ApiState {
             ticket_system,
             trace_sink,
             worker_id,
-            metrics: Arc::new(Metrics::new()),
+            metrics: Arc::new(Metrics::new(db_path).expect("metrics store")),
         }
     }
 
@@ -278,6 +295,25 @@ impl ApiState {
     }
 
     pub async fn recover_pending_workflows(&self) -> Result<usize, EngineError> {
+        self.recover_inner(true).await
+    }
+
+    pub(crate) fn forward_trace(&self, workflow_id: String) {
+        spawn_workflow_trace_batch(
+            Arc::clone(&self.reader_store),
+            Arc::clone(&self.trace_sink),
+            self.worker_id.clone(),
+            workflow_id,
+        );
+    }
+
+    /// Periodic sweep: re-admits steps whose lease expired after startup (e.g. a
+    /// restart that came back before the dead worker's lease ran out).
+    pub async fn sweep_expired_leases(&self) -> Result<usize, EngineError> {
+        self.recover_inner(false).await
+    }
+
+    async fn recover_inner(&self, trace_all: bool) -> Result<usize, EngineError> {
         let ids = self
             .registry
             .list()
@@ -346,13 +382,15 @@ impl ApiState {
         }
 
         let count = recover(&self.engine).await?;
-        for workflow_id in recovery_trace_targets {
-            spawn_workflow_trace_batch(
-                Arc::clone(&self.reader_store),
-                Arc::clone(&self.trace_sink),
-                self.worker_id.clone(),
-                workflow_id,
-            );
+        if trace_all || count > 0 {
+            for workflow_id in recovery_trace_targets {
+                spawn_workflow_trace_batch(
+                    Arc::clone(&self.reader_store),
+                    Arc::clone(&self.trace_sink),
+                    self.worker_id.clone(),
+                    workflow_id,
+                );
+            }
         }
         Ok(count)
     }
@@ -564,6 +602,87 @@ async fn dev_kill_worker() -> StatusCode {
     StatusCode::OK
 }
 
+#[derive(serde::Serialize)]
+struct ConfigView {
+    classifier: &'static str,
+    mailer: &'static str,
+    tracing: bool,
+    auth_required: bool,
+    dev_tools: bool,
+}
+
+fn env_set(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|v| !v.is_empty())
+}
+
+async fn get_config(State(state): State<ApiState>) -> Json<ConfigView> {
+    #[cfg(feature = "dev-tools")]
+    let dev_tools = dev_kill_allowed();
+    #[cfg(not(feature = "dev-tools"))]
+    let dev_tools = false;
+    Json(ConfigView {
+        classifier: if env_set("OPENAI_API_KEY") {
+            "openai"
+        } else {
+            "mock"
+        },
+        mailer: if env_set("AGENTMAIL_API_KEY")
+            && env_set("AGENTMAIL_FROM_ADDRESS")
+            && env_set("APPROVER_EMAIL")
+        {
+            "agentmail"
+        } else {
+            "mock"
+        },
+        tracing: env_set("RESPAN_API_KEY"),
+        auth_required: state.api_key.is_some(),
+        dev_tools,
+    })
+}
+
+#[cfg(feature = "dev-tools")]
+#[derive(serde::Serialize)]
+struct EvalResult {
+    name: String,
+    passed: bool,
+}
+
+#[cfg(feature = "dev-tools")]
+async fn dev_run_evals() -> Result<Json<Vec<EvalResult>>, StatusCode> {
+    if !dev_kill_allowed() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let output = tokio::task::spawn_blocking(|| {
+        std::process::Command::new("cargo")
+            .args(["test", "reliability_evals::", "--", "--test-threads=4"])
+            // Evals must run hermetically: the server's auth key and live integrations would leak in.
+            .env_remove("DURABLE_AGENT_API_KEY")
+            .env_remove("OPENAI_API_KEY")
+            .env_remove("AGENTMAIL_API_KEY")
+            .env_remove("AGENTMAIL_FROM_ADDRESS")
+            .env_remove("APPROVER_EMAIL")
+            .env_remove("AGENTMAIL_WEBHOOK_SECRET")
+            .env_remove("RESPAN_API_KEY")
+            .output()
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let results = stdout
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("test reliability_evals::")?;
+            let (name, status) = rest.split_once(" ... ")?;
+            Some(EvalResult {
+                name: name.trim_start_matches("eval_").to_string(),
+                passed: status.trim() == "ok",
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(results))
+}
+
 fn bearer_token_matches(header: &str, expected: &str) -> bool {
     header.strip_prefix("Bearer ") == Some(expected)
 }
@@ -610,10 +729,14 @@ fn workflow_management_routes() -> Router<ApiState> {
 }
 
 fn public_routes() -> Router<ApiState> {
-    let public = Router::new().route("/webhooks/agentmail", post(agentmail_webhook));
+    let public = Router::new()
+        .route("/webhooks/agentmail", post(agentmail_webhook))
+        .route("/config", get(get_config));
     #[cfg(feature = "dev-tools")]
     {
-        public.route("/dev/kill", post(dev_kill_worker))
+        public
+            .route("/dev/kill", post(dev_kill_worker))
+            .route("/dev/evals", post(dev_run_evals))
     }
     #[cfg(not(feature = "dev-tools"))]
     {
@@ -634,7 +757,14 @@ pub fn router() -> Router<ApiState> {
 
 async fn get_metrics(State(state): State<ApiState>) -> Result<Json<MetricsView>, StatusCode> {
     let workflows_waiting = state.count_workflows_waiting()?;
-    Ok(Json(state.metrics.snapshot(workflows_waiting)))
+    state
+        .metrics
+        .snapshot(workflows_waiting)
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!(error = %e, "metrics snapshot failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
 }
 
 async fn create_workflow(
@@ -1142,6 +1272,45 @@ mod tests {
 
         let events = reader.load_events(workflow_id).expect("final events");
         panic!("workflow did not reach WorkflowCompleted after recovery; last events: {events:?}");
+    }
+
+    #[tokio::test]
+    async fn sweep_expired_leases_recovers_without_startup_recovery() {
+        use crate::classifier::{Classifier, MockClassifier};
+
+        let path = recovery_test_db_path("sweep-complete");
+        let _ = std::fs::remove_file(&path);
+
+        let workflow_id = "wf-sweep";
+        let ticket = sample_ticket(workflow_id);
+        let classification = MockClassifier
+            .classify(&ticket)
+            .await
+            .expect("mock classify");
+        let classification_json =
+            serde_json::to_string(&classification).expect("classification json");
+
+        {
+            let registry = WorkflowRegistry::new(&path).expect("registry");
+            registry.insert(&ticket).expect("insert ticket");
+            seed_crash_mid_send_reply(&path, workflow_id, &classification_json);
+        }
+
+        let state = ApiState::new(&path);
+        let swept = state.sweep_expired_leases().await.expect("sweep");
+        assert!(swept >= 1, "expected sweep to re-admit the expired step");
+        assert_eq!(state.sweep_expired_leases().await.expect("second sweep"), 0);
+
+        let reader = SqliteStore::new(&path).expect("poll store");
+        for _ in 0..200 {
+            let events = reader.load_events(workflow_id).expect("load_events");
+            if workflow_completed(&events) {
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("workflow did not complete after sweep");
     }
 
     #[tokio::test]

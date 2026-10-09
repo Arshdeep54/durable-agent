@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PIDFILE="$ROOT/.demo-server.pid"
 METAFILE="$ROOT/.demo-server.meta"
 LOGFILE="$ROOT/.demo-server.log"
-BASE_URL="http://127.0.0.1:8080"
+BASE_URL="http://127.0.0.1:${PORT:-8080}"
 DB="$ROOT/durable-agent.db"
 
 curl_api() {
