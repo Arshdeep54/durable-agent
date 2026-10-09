@@ -6,3 +6,7 @@ durable-agent.db
 .demo-server.pid
 .demo-server.meta
 .demo-server.log
+.claude/
+/implementation.md
+/implementation-v2.md
+/scripts/seed.sh

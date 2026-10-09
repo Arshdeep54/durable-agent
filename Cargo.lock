@@ -4,7 +4,9 @@ version = 4
 
 [[package]]
 name = "agentq"
-version = "0.2.0"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "067d39dccdae6ced229f38b9da9011827a309a6b91977d7147983625b43607b3"
 dependencies = [
  "rusqlite",
  "strum",
