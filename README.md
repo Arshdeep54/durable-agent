@@ -1,11 +1,44 @@
 # durable-agent
 
-A durable execution engine for AI agent workflows, built on [`agentq`](../agentq)
-(a generic workflow/step/event engine, sibling crate in this workspace).
-Demonstrated here via a support-ticket resolution workflow: classify an
-incoming ticket with an LLM, draft a reply, park for human approval, send the
-reply, and mark the ticket resolved — surviving worker crashes at any point
-along the way.
+**A reference app for [agentq](https://github.com/Arshdeep54/agentq)**, which
+provides durable workflows for Rust as a library, with no server and a single
+SQLite file.
+
+durable-agent is an example, not a support product. It runs one realistic AI
+agent workflow end to end, to show what agentq handles for you:
+
+1. Ingest a support ticket.
+2. Classify it and draft a reply with an LLM (`gpt-4o-mini`).
+3. Wait for a human to approve, by email reply, for seconds or days.
+4. Send the approved reply to the customer.
+5. Mark the ticket resolved.
+
+All of the durability comes from agentq. The app's steps are plain async
+functions.
+
+## What it demonstrates
+
+- **Crash recovery:** `SIGKILL` the worker mid-workflow and restart it. The
+  workflow resumes from its last recorded step, and completed steps are not
+  re-run because their outputs are replayed from the event log.
+- **Human-in-the-loop waits:** the approval step parks the workflow as
+  *Waiting*, which uses no thread or memory. An AgentMail webhook (the approver
+  replying APPROVE or REJECT) resumes it.
+- **Retries and timeouts:** each step has its own policy. For example, the LLM
+  call retries with exponential backoff.
+- **Leases:** a running step holds a renewed lease, and a background sweeper
+  re-admits steps whose lease expired after a crash.
+- **Observability:** every step is traced in Respan, including the model call
+  with its tokens and latency.
+
+Delivery is at-least-once, not exactly-once. See
+[Reliability semantics](#reliability-semantics) for the exact guarantees.
+
+To use durable workflows in your own project, depend on agentq directly:
+
+```toml
+agentq = { version = "0.2.1", features = ["sqlite"] }
+```
 
 ## Start it
 
@@ -103,6 +136,8 @@ The entire walkthrough above works with zero credentials set.
 
 ## Architecture and deployment
 
+![durable-agent architecture](docs/architecture.png)
+
 See [`WORKFLOW.md`](WORKFLOW.md) for the workflow's step-by-step design and
 [`DEPLOYMENT.md`](DEPLOYMENT.md) for the intended production deployment
 shape.
@@ -137,3 +172,7 @@ decision rather than fixed: two call chains that both read/act on the same
 attempt numbers diverge — V1's job-key dedup masks this for the common case,
 but it is not a general guarantee. Nothing in the current roadmap requires
 fixing this; it is deliberately deferred to a future reliability phase.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).
